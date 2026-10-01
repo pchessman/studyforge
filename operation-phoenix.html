@@ -500,7 +500,21 @@ button.pill{font-family:var(--font-display)}
 .keys kbd{font-family:var(--font-body);font-weight:900;font-size:10.5px;background:var(--paper-2);border:2px solid var(--ink);border-radius:6px;padding:0 5px;color:var(--ink)}
 body.touch .keys{display:none}
 /* radio callouts (retired) and tutorial coach */
-.radio{display:none!important}
+.radio{position:absolute;left:10px;bottom:12px;z-index:6;display:flex;align-items:center;gap:8px;max-width:min(420px,72%);background:#fff;border:3px solid var(--ink);border-radius:18px;box-shadow:0 5px 0 rgba(43,36,24,.4);padding:6px 14px 6px 6px;pointer-events:none;animation:pop .4s var(--pop) both}
+.radio canvas{width:44px;height:44px;flex:none;border-radius:999px;background:radial-gradient(circle at 50% 70%,#bfe08a,#8fbf5a);border:2.5px solid var(--ink)}
+.radio b{display:block;font-family:var(--font-display);font-weight:400;font-size:12px;color:var(--olive-d)}
+.radio span{font-size:13px;line-height:1.3;color:var(--text)}
+.mm-wrap{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:14px;margin-top:12px}
+.mm-cv{width:100%;height:auto;aspect-ratio:960/624;border:4px solid var(--ink);border-radius:16px;touch-action:none}
+.mm-side{display:flex;flex-direction:column;gap:6px}
+.mm-l{font-family:var(--font-display);font-size:15px;color:var(--ink);margin-top:4px}
+.mm-name{border:3px solid var(--ink);border-radius:12px;padding:6px 10px;font-family:var(--font-body);font-weight:800;background:#fff}
+.mm-seg{display:flex} .mm-seg button{flex:1;padding:5px 4px}
+.mm-msg{min-height:2.6em;background:#fff;border:2.5px solid var(--ink);border-radius:12px;padding:5px 8px;color:var(--text)}
+.mm-list{display:flex;flex-direction:column;gap:4px}
+.mm-saved{text-align:left;background:var(--paper-2);border:2.5px solid var(--ink);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:900;color:var(--ink)}
+.mode-seasonal .stripe{background:#ff8a2a}.mode-maker .stripe{background:var(--green)}
+@media (max-width:760px){ .mm-wrap{grid-template-columns:1fr} }
 .coach{position:absolute;left:0;right:0;margin-inline:auto;bottom:10px;z-index:7;width:min(440px,calc(100% - 20px));display:flex;gap:10px;align-items:flex-start;background:#fff;border:3px solid var(--ink);border-radius:18px;box-shadow:0 5px 0 rgba(43,36,24,.45);padding:9px 12px;color:var(--text);animation:pop .45s var(--pop) both}
 .coach canvas{width:50px;height:50px;flex:none;border-radius:999px;background:radial-gradient(circle at 50% 70%,#bfe08a,#8fbf5a);border:2.5px solid var(--ink)}
 .coach .ct{font-family:var(--font-display);font-size:17px;line-height:1.1;color:var(--ink)}
@@ -1244,8 +1258,10 @@ const MODES = {
   endless:  { name: 'Endless',   stripe: 'No limit', desc: 'No finish line. The waves keep getting meaner until HQ falls.' },
   bossrush: { name: 'Goliath Rush', stripe: 'Hardcore', desc: 'A Goliath every single wave, and more of them as you go. You start with a war chest.' },
   daily:    { name: 'Daily Op', stripe: 'Today', desc: 'One map, two twists, a fresh operation every day.' },
+  seasonal: { name: 'Seasonal Op', stripe: 'Event', desc: '15 waves with a seasonal twist. Win it for gems and a limited decoration.' },
+  maker:    { name: 'Map Maker', stripe: 'Create', desc: 'Draw your own road, pick a theme and waves, then play it.' },
 };
-const MODE_ORDER = ['campaign', 'classic', 'endless', 'bossrush', 'daily'];
+const MODE_ORDER = ['campaign', 'seasonal', 'classic', 'endless', 'bossrush', 'daily', 'maker'];
 
 // HQ upgrades: permanent bonuses bought with coins (stored as perks).
 const PERKS = [
@@ -1998,7 +2014,7 @@ function loadProfile() {
     unlocked: obj(p.unlocked) || {}, perks: { chest: 0, walls: 0, bounty: 0, thrift: 0, radar: 0, airfield: 0 }, xp: num(p.xp), rankSeen: num(p.rankSeen),
     best: obj(p.best) || {}, daily: obj(p.daily) || { date: '', best: 0, rewarded: false },
     stats: { kills: 0, runs: 0, combo: 0, bosses: 0, flyers: 0, ghosts: 0, quests: 0, levels: 0 },
-    settings: { music: .8, sfx: .8, shake: true, dmgNums: true, colorblind: false, ui: 'auto', lowFx: false, gfx: 'medium', fps: 60, blood: true, musicStyle: 'chip', radio: true, djName: '' },
+    settings: { music: .8, sfx: .8, shake: true, dmgNums: true, colorblind: false, ui: 'auto', lowFx: false, gfx: 'medium', fps: 60, blood: true, musicStyle: 'chip', radio: true, djName: '', season: 'auto' },
     migrated: !!p.migrated, v3: !!p.v3,
     skins: { owned: { classic: true }, active: 'classic' },
     hero: HEROES[p.hero] ? p.hero : HEROES[HERO_RENAME[p.hero]] ? HERO_RENAME[p.hero] : null,
@@ -2008,6 +2024,7 @@ function loadProfile() {
     quests: { daily: null, weekly: null }, chests: [], freeChestAt: num(p.freeChestAt),
     streak: { last: '', count: 0, best: 0, claimed: '' }, tutorialDone: !!p.tutorialDone,
     album: { got: {}, claimed: {} }, decor: { owned: {}, placed: [] },
+    custom: Array.isArray(p.custom) ? p.custom.filter(d => d && Array.isArray(d.pts) && Array.isArray(d.tiles)).slice(0, 6) : [], seasonWins: obj(p.seasonWins) || {},
   };
   for (const k in prof.perks) prof.perks[k] = Math.min(PERK_MAX, num(p.perks && p.perks[k]));
   for (const k in prof.stats) prof.stats[k] = num(p.stats && p.stats[k]);
@@ -2058,7 +2075,7 @@ function todayKey() {
 function dailyInfo() {
   const key = todayKey(), seed = parseInt(key.replace(/-/g, ''), 10);
   const R = mulberry(seed * 31 + 5);
-  const mapIdx = Math.floor(R() * MAPS.length);
+  const mapIdx = Math.floor(R() * BASE_MAPS);
   const pool = DAILY_MODS.slice(), mods = [];
   for (let i = 0; i < 2; i++) mods.push(pool.splice(Math.floor(R() * pool.length), 1)[0]);
   const banned = mods.some(m => m.id === 'ban') ? TOWER_ORDER[Math.floor(R() * TOWER_ORDER.length)] : null;
@@ -2068,7 +2085,7 @@ function dailyInfo() {
 function makeRules(mode, mapIdx, demo = false, level = null, hard = false) {
   const def = MAPS[mapIdx], pk = demo ? { chest: 0, walls: 0, bounty: 0, thrift: 0, radar: 0, airfield: 0 } : profile.perks;
   const r = {
-    mode, demo, maxWave: mode === 'classic' ? 30 : 0, bossEvery: 5, bossRush: mode === 'bossrush',
+    mode, demo, maxWave: mode === 'classic' ? def.waves || 30 : mode === 'seasonal' ? 15 : 0, bossEvery: 5, bossRush: mode === 'bossrush',
     hpMul: def.hpMul, speedMul: 1, goldMul: 1 + .06 * pk.bounty, bonusMul: 1,
     startGold: def.gold + 30 * pk.chest, lives: def.lives + 3 * pk.walls,
     armoredFrom: 4, healerFrom: 6, splitterFrom: 8, armoredW: 1, banned: null, costMul: 1 - .04 * pk.thrift, seed: 0, mods: [],
@@ -2086,6 +2103,7 @@ function makeRules(mode, mapIdx, demo = false, level = null, hard = false) {
     if (L.twist) { TWISTS[L.twist].apply(r); r.mods = [{ name: TWISTS[L.twist].name, desc: TWISTS[L.twist].desc }]; }
     if (hard) { r.hard = true; r.hpMul *= 1.45; r.speedMul *= 1.08; r.lives = Math.max(5, Math.round(r.lives * .6)); r.mods.push({ name: 'Hard mode', desc: 'Tougher, faster hostiles and a weaker HQ.' }); }
   }
+  if (mode === 'seasonal' && season()) { const ss = SEASONS[season()]; ss.apply(r); r.mods = ss.mods; }
   if (mode === 'daily') { const d = dailyInfo(); d.mods.forEach(m => m.apply(r)); r.banned = d.banned; r.seed = d.seed % 1000; r.mods = d.labels; }
   return r;
 }
@@ -2293,6 +2311,11 @@ const Music = {
     if (this.on) { Sfx.unlock(); this.phrase = null; this.pstep = 0; }
     this.apply();
   },
+  // 0 calm, 1 busy, 2 swarming or a boss on the field
+  heat() {
+    if (view !== 'play' || !S || S.mode !== 'playing' || !S.waveActive) return 0;
+    const n = S.enemies.length; return S.enemies.some(e => e.def.boss) || n > 24 ? 2 : n > 8 ? 1 : 0;
+  },
   duck(v) { if (v !== this.duckV) { this.duckV = v; this.apply(); } },
   tick() {
     const c = Sfx.ctx; if (!c || c.state !== 'running' || !this.on || DJ.playing) return;
@@ -2441,7 +2464,10 @@ const Music = {
         else this.newPhrase(d, sig);
       }
     }
-    const ph = this.phrase, P = ph.P, s = this.pstep, bar = s >> 4, st = s & 15, ch = ph.chords[bar], sd = this.stepDur, L = P.level;
+    const ph = this.phrase, P = ph.P, s = this.pstep, bar = s >> 4, st = s & 15, ch = ph.chords[bar], sd = this.stepDur;
+    if (ph.base == null) ph.base = P.level;
+    if (st === 0) P.level = Math.min(4, ph.base + this.heat());
+    const L = P.level;
     const m = deg => degMidi(P.root, P.scale, deg), sty = P.club ? 'synth' : this.style;
     if (st === 0) this.nature();
     if (sty !== 'chip') {
@@ -2746,7 +2772,7 @@ function startWave() {
   S.hpMult = hpMult(S.rules.bossRush ? S.wave + 2 + Math.floor(S.wave / 4) : S.wave) * S.rules.hpMul * (demo ? .8 : 1);
   S.goldMult = goldMult(S.wave);
   if (demo) return;
-  if (S.wave >= 3 && Math.random() < .3) {
+  if (S.wave >= 3 && Math.random() < (S.rules.goldenRate || .3)) {
     const last = S.spawnList[S.spawnList.length - 1].t;
     S.spawnList.push({ type: 'golden', t: 2 + Math.random() * Math.max(1, last - 2) });
     S.spawnList.sort((a, b) => a.t - b.t);
@@ -2775,6 +2801,8 @@ function waveComplete() {
   questEvent('gold', S.goldEarned - S.goldMark); S.goldMark = S.goldEarned;
   if (S.rules.maxWave && S.wave >= S.rules.maxWave && !S.endlessCont) { victory(); return; }
   addBanner(`Wave ${S.wave} cleared`, `+$${bonus} bonus`, '#d7ffb0');
+  chatter(false);
+  if (S.rules.fireworks) for (let k = 0; k < 4; k++) S.rings.push({ x: W * (.2 + Math.random() * .6), y: H * (.15 + Math.random() * .4), r: 4, max: 40 + Math.random() * 30, life: .7, maxLife: .7, color: ['255,90,90', '255,220,90', '120,220,255'][k % 3] });
   if (S.wave % 3 === 0) radio('wave');
   Sfx.play('clear'); bump('statGold');
   if (S.auto || S.rules.rush) S.autoT = S.rules.rush ? 1.5 : 2.5;
@@ -2921,9 +2949,10 @@ function killEnemy(e, tw) {
   addText(e.x, e.y - e.def.r * T - 6, '+$' + gold, '#8ee05a', e.def.boss || e.def.golden ? 22 : 15);
   // coins fly up to the gold counter
   for (let k = 0; k < (e.def.boss ? 7 : 2); k++) S.particles.push({ kind: 'coinfly', x: e.x, y: e.y, sx: e.x + (Math.random() - .5) * 60, sy: e.y - 40 - Math.random() * 50, vx: 0, vy: 0, life: .75 + k * .06, max: .75 + k * .06, size: 4.2, color: '#6cbf3a' });
-  if (e.def.boss) { addShake(14); Sfx.play('bigpop'); addBanner(`${e.king || 'Goliath'} destroyed!`, `+$${gold}`, '#ffe08a'); S.hitstop = .2; S.flashFx = .35; }
+  if (e.def.boss) { S.slowmo = e.king ? 2 : 1.3; addShake(14); Sfx.play('bigpop'); addBanner(`${e.king || 'Goliath'} destroyed!`, `+$${gold}`, '#ffe08a'); S.hitstop = .2; S.flashFx = .35; }
   else Sfx.play('pop');
   if (e.def.golden) { sparkle(e.x, e.y, 24); Sfx.play('golden'); }
+  if (S.rules.fireworks) sparkle(e.x, e.y - 10, 5);
   // combos: quick chains of kills pay a bonus
   S.combo = S.time - S.lastKill < .7 ? S.combo + 1 : 1; S.lastKill = S.time;
   if (S.combo > S.bestCombo) { S.bestCombo = S.combo; if (S.combo >= 10) questEvent('combo', S.combo); }
@@ -3607,7 +3636,7 @@ function rankTiles(map, rad) {
   return tiles.sort((a, b) => b.cov - a.cov);
 }
 function startDemo() {
-  const idx = Math.floor(Math.random() * MAPS.length);
+  const idx = Math.floor(Math.random() * BASE_MAPS);
   S = newState(idx, makeRules('endless', idx, true), 'demo');
   S.gold = 1e9;
   bgCanvas = renderBackground(S.map, DPR);
@@ -3647,6 +3676,7 @@ function beginRun(mode, mapIdx, opts) {
     addBanner(`${L.id}: ${L.title}${S.hard ? ' (Hard)' : ''}`, S.rules.mods.length ? S.rules.mods.map(m => m.name).join(' + ') : `Survive ${S.rules.maxWave} waves`, '#fff3c4');
   } else addBanner(MAPS[mapIdx].name, mode === 'daily' ? 'Daily: ' + S.rules.mods.map(m => m.name).join(' + ') : MODES[mode].name + ' · build towers, then start wave 1', '#fff3c4');
   if (typeof onRunStart === 'function') onRunStart();
+  if (!opts.resume && mode !== 'demo') setTimeout(() => chatter(true), 1800);
   if (S.rules.loadout && !S.loadout && mode !== 'demo') setTimeout(() => openLoadout(S.rules.loadout), 600);
 }
 
@@ -3655,7 +3685,7 @@ const SAVE_KEY = 'meadowguard.save.v1';
 const SAVE_FIELDS = ['loadout', 'lastEvent', 'switchOn', 'callPts', 'gold', 'lives', 'cleared', 'speed', 'auto', 'endlessCont', 'won', 'coinsAwarded', 'runCoins', 'kills', 'goldEarned', 'bestCombo', 'prevBest', 'weather', 'powerCd', 'flyersKilled', 'ghostsKilled', 'bossesKilled'];
 function saveRun() {
   if (!S || S.mode !== 'playing' || S.waveActive) return;
-  const d = { v: 2, mode: S.rules.mode, mapIdx: S.mapIdx, level: S.level, hard: S.hard, daily: S.rules.mode === 'daily' ? todayKey() : null, wave: S.wave, maxLives: S.maxLives,
+  const d = { v: 2, mode: S.rules.mode, mapIdx: S.mapIdx, mapId: S.map.def.id, level: S.level, hard: S.hard, daily: S.rules.mode === 'daily' ? todayKey() : null, wave: S.wave, maxLives: S.maxLives,
     razed: S.razed, hu: S.hu ? { lvl: S.hu.lvl, xp: S.hu.xp, x: S.hu.x, y: S.hu.y } : null,
     towers: S.towers.map(t => ({ type: t.type, c: t.c, r: t.r, level: t.level, branch: t.branch, spent: t.spent, mode: t.mode, kills: t.kills, dealt: Math.round(t.dealt), relic: t.relic, earned: t.earned | 0 })) };
   for (const k of SAVE_FIELDS) d[k] = S[k];
@@ -3665,6 +3695,7 @@ function saveRun() {
 function loadSave() {
   const d = Store.get(SAVE_KEY, null);
   if (!d || d.v !== 2 || !MODES[d.mode] || !MAPS[d.mapIdx] || !Array.isArray(d.towers)) return null;
+  if (d.mapId && MAPS[d.mapIdx].id !== d.mapId) return null;
   if (d.mode === 'daily' && d.daily !== todayKey()) return null;
   if (d.mode === 'campaign' && !levelById(d.level)) return null;
   return d;
@@ -3809,11 +3840,16 @@ function victory() {
   } else {
     profile.wins++;
     const got = awardCoins();
+    let extra = '';
+    if (S.rules.mode === 'seasonal' && season()) {
+      const k = season(), key = k + new Date().getFullYear(), ss = SEASONS[k];
+      if (!profile.seasonWins[key]) { profile.seasonWins[key] = true; addGems(40); profile.decor.owned[ss.decor] = true; saveProfile(); extra = ` · +40 gems · ${DECOR_ITEMS.find(d => d.id === ss.decor).name} decoration`; }
+    }
     ui.wonTtl.textContent = 'Victory!';
     ui.wonMap.textContent = `You held ${S.map.def.name} for ${S.wave} waves.`;
     ui.wonHint.textContent = 'Keep going to chase a higher wave. Your towers and money stay.';
     ui.keep.textContent = 'Keep Going';
-    ui.wonStars.textContent = `+${fmt(got)} coins`;
+    ui.wonStars.textContent = `+${fmt(got)} coins` + extra;
   }
   const g = nextGoal(); ui.wonNext.textContent = g.text;
   checkTitles();
@@ -5084,6 +5120,7 @@ function drawSoldier(g, e, time, theme) {
   if (e.burn > 0) glow(g, x, y - 16 * k, 16 * k, '255,120,30', .25);
   if (stealth && !GFX.low && !e.revealed) { g.strokeStyle = 'rgba(160,240,255,.45)'; g.lineWidth = 1; for (let i = 0; i < 3; i++) { const yy = y - 36 * k + ((time * 14 + i * 9 + e.seed * 20) % (34 * k)); g.beginPath(); g.moveTo(x - 7 * k, yy); g.lineTo(x + 7 * k, yy + 1); g.stroke(); } }
   if (e.stun > 0 && !(e.frozen > 0)) { for (let i = 0; i < 3; i++) { const a = time * 6 + i * 2.1; circle(g, x + Math.cos(a) * 7 * k, y - 40 * k + Math.sin(a) * 2 * k, 1.8); g.fillStyle = '#ffe066'; g.fill(); } }
+  if (!stealth || e.revealed) drawSeasonHat(g, x + (dir === 2 ? e.face : 0), y - 38 * k, k);
   if (e.king || e.mini) nameTag(g, e, x, y - 46 * k);
 }
 function tintOverlay(g, e, x, y, rx, ry, time) {
@@ -5517,6 +5554,7 @@ function render() {
   // black holes sit on the ground under everything
   for (const h of S.holes) drawHole(g, h);
   if (!demo) { drawArena(g); drawLever(g); drawEvents(g); }
+  drawSeason(g);
   const th = THEMES[S.map.def.theme];
   for (const d of S.map.decor) drawDecor(g, d.kind, decorX(d), decorY(d), d.s, d.j, th, S.anim, S.wind);
   if (!demo) {
@@ -5672,6 +5710,7 @@ function render() {
     g.fillStyle = HUD_CYAN; g.fillText('PAUSED', W / 2, H / 2 - 10);
     g.font = `600 18px ${HUD_FONT}`; g.lineWidth = 4; g.strokeText('Press Space or Resume', W / 2, H / 2 + 36); g.fillStyle = '#d8f4ff'; g.fillText('Press Space or Resume', W / 2, H / 2 + 36);
   }
+  if (S.slowmo > 0) { const k = Math.min(1, S.slowmo / .3); g.fillStyle = `rgba(20,16,10,${.85 * k})`; g.fillRect(0, 0, W, 34 * k); g.fillRect(0, H - 34 * k, W, 34 * k); }
   if (S.mode === 'over') { const k = clamp((S.anim - S.overAt) / 1, 0, 1); g.fillStyle = `rgba(40,10,5,${k * .35})`; g.fillRect(0, 0, W, H); }
 }
 function drawBossBar(g) {
@@ -5798,6 +5837,7 @@ function ambientSpec() {
   if (base === 'forest') { spec.fly = 6 + Math.round((S.night || 0) * 14); spec.bfly = S.night > .5 ? 0 : 5; }
   if (base === 'city') { spec.fog = w === 'fog' ? 14 : 6; spec.ash = 24; }
   if (w === 'rain') spec.rain = 150;
+  if (season() === 'winter' && !spec.flake) spec.flake = 35;
   if ((S.night || 0) > .4 && base !== 'forest') spec.fly = Math.round(10 * S.night);
   if (w === 'ashfall') spec.ash = 90;
   if (w === 'windy') spec.leaf = 22;
@@ -6312,6 +6352,8 @@ function modeIcon(id) {
     if (id === 'classic') { g.translate(36, 34); g.scale(.85, .85); drawBase(g, { def: { theme: 'meadow' }, base: { x: 0, y: 6 } }, .4, 1); }
     else if (id === 'endless') { const a = critter('normal', 22, 44), b = critter('armored', 48, 52), c = critter('flyer', 46, 26); a.big = 1.5; c.big = 1.3; a.face = 1; drawEnemy(g, a, .1); drawEnemy(g, b, .4); drawEnemy(g, c, .5); }
     else if (id === 'bossrush') { const e = critter('boss', 36, 54); e.big = 1.05; e.face = 1; drawEnemy(g, e, .2); }
+    else if (id === 'seasonal') { const k = season() || 'halloween'; g.translate(36, 58); g.scale(1.3, 1.3); drawDecorItem(g, SEASONS[k].decor, 0); }
+    else if (id === 'maker') { rr(g, 10, 14, 52, 44, 8); fillStroke(g, '#7cc24e', OUT, 2.5); g.strokeStyle = OUT; g.lineWidth = 9; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(10, 26); g.lineTo(30, 26); g.lineTo(30, 46); g.lineTo(52, 46); g.stroke(); g.strokeStyle = '#c4925e'; g.lineWidth = 6; g.stroke(); g.save(); g.translate(52, 22); g.rotate(.7); rr(g, -3, -14, 6, 22, 2); fillStroke(g, '#ffd23f', OUT, 2); g.restore(); }
     else {
       rr(g, 12, 12, 48, 48, 3); fillStroke(g, '#121a21', '#ffb300', 2);
       g.fillStyle = '#ffb300'; g.fillRect(12, 12, 48, 12);
@@ -6404,26 +6446,28 @@ function renderModes() {
   ui.modes.innerHTML = '';
   const daily = dailyInfo();
   for (const id of MODE_ORDER) {
-    if (id === 'campaign') continue;
+    if (id === 'campaign' || (id === 'seasonal' && !season())) continue;
     const m = MODES[id], b = el('button', 'mode-card mode-' + id);
     b.appendChild(el('span', 'stripe', m.stripe));
     b.appendChild(modeIcon(id));
     b.appendChild(el('span', 'mode-name', m.name));
     b.appendChild(el('span', 'mode-desc', m.desc));
-    if (id === 'daily') {
+    if (id === 'seasonal') { const ss = SEASONS[season()]; b.querySelector('.mode-name').textContent = ss.name; b.appendChild(el('span', 'mode-desc', ss.mods[0].name + ': ' + ss.mods[0].desc)); b.appendChild(el('span', 'mode-best', profile.seasonWins[season() + new Date().getFullYear()] ? 'Won this season ✓' : 'Win: +40 gems and a limited decoration')); }
+    else if (id === 'maker') b.appendChild(el('span', 'mode-best', `${customDefs().length} of ${CUSTOM_MAX} maps saved`));
+    else if (id === 'daily') {
       b.appendChild(el('span', 'mode-desc', `Today: ${MAPS[daily.mapIdx].name}`));
       const mods = el('span', 'mods');
       for (const md of daily.labels) { const c = el('span', 'mod', md.name); c.title = md.desc; mods.appendChild(c); }
       b.appendChild(mods);
       const done = profile.daily.date === todayKey() && profile.daily.rewarded;
       b.appendChild(el('span', 'mode-best', `Best today: ${bestForMode('daily') ? 'wave ' + bestForMode('daily') : 'not played'} · ${done ? 'bonus claimed' : 'reach wave 10 for +300 coins'}`));
-    } else {
+    } else if (id !== 'seasonal' && id !== 'maker') {
       const best = bestForMode(id);
       let line = best ? `Best: wave ${best}` : 'Not played yet';
       if (id === 'classic' && profile.wins) line += ` · ${profile.wins} win${profile.wins > 1 ? 's' : ''}`;
       b.appendChild(el('span', 'mode-best', line));
     }
-    b.addEventListener('click', () => { Sfx.unlock(); Sfx.play('click', true); if (id === 'daily') { ui.modesModal.hidden = true; startRun('daily'); } else openPicker(id); });
+    b.addEventListener('click', () => { Sfx.unlock(); Sfx.play('click', true); if (id === 'daily') { ui.modesModal.hidden = true; startRun('daily'); } else if (id === 'seasonal') { ui.modesModal.hidden = true; startRun('seasonal', seasonalMapIdx()); } else if (id === 'maker') openMapMaker(); else openPicker(id); });
     ui.modes.appendChild(b);
   }
 }
@@ -6914,7 +6958,7 @@ function showLoading(mapIdx, mode, level, then) {
   ui.loadTitle.textContent = home ? 'Phoenix HQ' : L ? L.title : def.name;
   const who = home ? 'P' : L ? L.who : 'P', hero = profile.hero || 'viper';
   const text = home ? (S && S.mode === 'playing' ? 'Mission saved. Resume it any time from the command centre.' : 'Good work out there. Debrief, resupply, and get ready for the next one.')
-    : (L ? L.line + (L.twist ? ` Intel: ${TWISTS[L.twist].desc}` : '') : MAP_LORE[def.id]);
+    : (L ? L.line + (L.twist ? ` Intel: ${TWISTS[L.twist].desc}` : '') : MAP_LORE[def.id] || (def.custom ? 'A road you drew yourself. Let\'s see if it holds.' : 'Hold the line.'));
   paintHero(ui.loadWho, { P: 'phoenix', S: hero, E: 'echo', W: 'warden' }[who], profile.outfits.active[hero], 'stand');
   ui.loadWhoName.textContent = { P: 'PHOENIX', S: HEROES[hero].name, E: 'ECHO · INTERCEPT', W: 'THE WARDEN' }[who];
   ui.loadLore.textContent = '';
@@ -7002,6 +7046,8 @@ function openSettings() {
   head('Audio');
   row('Music', null, slider('music', () => { Sfx.unlock(); Music.apply(); }));
   row('Music style', 'every map tune, three ways', seg('musicStyle', [['chip', '8-bit'], ['synth', 'Synthwave'], ['calm', 'Tranquil']], () => { Sfx.unlock(); Music.phrase = null; Music.tuneIdx = 0; Music.nature(); }));
+  row('Squad chatter', 'short funny lines between waves', toggle('radio'));
+  row('Seasonal events', 'Auto follows the calendar', seg('season', [['auto', 'Auto'], ['off', 'Off'], ['halloween', '🎃'], ['winter', '🎁'], ['summer', '🏖'], ['lny', '🏮']], () => { if (S && S.map) S.map.seasonProps = null; }));
   row('Sound effects', null, slider('sfx', () => { Sfx.unlock(); if (Sfx.out) Sfx.out.gain.value = .55 * s.sfx; }));
   row('DJ Booth track', s.djName ? `Playing: ${s.djName}` : 'upload an audio file; DJs play it on the map', djUploadControls(() => openSettings()));
   head('Graphics');
@@ -7311,6 +7357,231 @@ function drawGoat(g, h) {
   g.strokeStyle = '#8a7a5a'; g.lineWidth = 2; g.beginPath(); g.moveTo(10, -10); g.quadraticCurveTo(7, -16, 4, -13); g.stroke();
   circle(g, 13, -8, 1); g.fillStyle = OUT; g.fill(); g.restore();
 }
+// ---------- drop 3: seasons, chatter, the map maker ----------
+
+// ----- seasonal events: switch on by date, or preview any of them from Settings -----
+const SEASONS = {
+  halloween: { name: 'Halloween', icon: '🎃', from: [10, 10], to: [11, 3], map: 'halloween', decor: 'pumpkin', mods: [{ name: 'Spooky Night', desc: 'Always night, stealth units from wave 3' }], apply: r => { r.forceNight = true; r.ghostFrom = 3; r.ghostW = 1.6; } },
+  winter: { name: 'Winter Holidays', icon: '🎁', from: [12, 8], to: [1, 6], map: 'winter', decor: 'gifts', mods: [{ name: 'Gift Trucks', desc: 'Supply trucks roll in far more often' }], apply: r => { r.goldenRate = .7; } },
+  summer: { name: 'Summer Fest', icon: '🏖', from: [6, 21], to: [8, 31], map: 'tropical', decor: 'umbrella', mods: [{ name: 'Heatwave Bonus', desc: '+$100 to start, Money Farms pay double' }], apply: r => { r.startGold += 100; r.farmMul = 2; } },
+  lny: { name: 'Lunar New Year', icon: '🏮', from: [1, 20], to: [2, 22], map: 'halloween', decor: 'redlantern', mods: [{ name: 'Fireworks', desc: 'Wave bonuses +50%, every kill sparkles' }], apply: r => { r.bonusMul *= 1.5; r.fireworks = true; } },
+};
+function season() {
+  const s = profile.settings.season;
+  if (s === 'off') return null;
+  if (SEASONS[s]) return s;
+  const d = new Date(), md = (d.getMonth() + 1) * 100 + d.getDate();
+  for (const k in SEASONS) {
+    const S0 = SEASONS[k], a = S0.from[0] * 100 + S0.from[1], b = S0.to[0] * 100 + S0.to[1];
+    if (a <= b ? md >= a && md <= b : md >= a || md <= b) return k;
+  }
+  return null;
+}
+DECOR_ITEMS.push(
+  { id: 'pumpkin', name: 'Jack-o\'-Lantern', from: 'season:halloween', how: 'Win the Halloween Seasonal Op' },
+  { id: 'gifts', name: 'Gift Pile', from: 'season:winter', how: 'Win the Winter Holidays Seasonal Op' },
+  { id: 'umbrella', name: 'Beach Umbrella', from: 'season:summer', how: 'Win the Summer Fest Seasonal Op' },
+  { id: 'redlantern', name: 'Red Lanterns', from: 'season:lny', how: 'Win the Lunar New Year Seasonal Op' },
+);
+const drawDecorItemBase = drawDecorItem;
+drawDecorItem = function (g, id, t = 0) {
+  switch (id) {
+    case 'pumpkin': g.fillStyle = 'rgba(43,36,24,.2)'; ellipse(g, 3, 2, 16, 5); g.fill(); drawPumpkin(g, 0, -10, 1.4, t); return;
+    case 'gifts': g.fillStyle = 'rgba(43,36,24,.2)'; ellipse(g, 3, 2, 20, 5); g.fill(); drawGift(g, -9, 0, 14, '#e5534b', '#ffd23f'); drawGift(g, 9, 0, 12, '#4fc8ff', '#ffffff'); drawGift(g, 0, -13, 11, '#7ed957', '#e5534b'); return;
+    case 'umbrella': g.fillStyle = 'rgba(43,36,24,.2)'; ellipse(g, 3, 2, 22, 6); g.fill(); g.strokeStyle = OUT; g.lineWidth = 3.4; g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -34); g.stroke(); g.strokeStyle = '#fff'; g.lineWidth = 1.6; g.stroke(); for (let i = 0; i < 6; i++) { g.beginPath(); g.moveTo(0, -38); g.arc(0, -30, 24, Math.PI + i * Math.PI / 6, Math.PI + (i + 1) * Math.PI / 6); g.closePath(); g.fillStyle = i % 2 ? '#fff' : '#ff5a5a'; g.fill(); } g.beginPath(); g.arc(0, -30, 24, Math.PI, 0); g.closePath(); ol(g, 2.2); circle(g, 16, -2, 6); g.fillStyle = '#4fc8ff'; g.fill(); ol(g, 1.6); return;
+    case 'redlantern': g.strokeStyle = OUT; g.lineWidth = 3; g.beginPath(); g.moveTo(-16, -40); g.quadraticCurveTo(0, -34, 16, -40); g.stroke(); for (const x of [-10, 0, 10]) drawRedLantern(g, x, -36 + Math.abs(x) * .15, .9, t); g.strokeStyle = OUT; g.lineWidth = 3; g.beginPath(); g.moveTo(-16, 0); g.lineTo(-16, -40); g.moveTo(16, 0); g.lineTo(16, -40); g.stroke(); return;
+  }
+  drawDecorItemBase(g, id, t);
+};
+function drawPumpkin(g, x, y, s, t) {
+  g.save(); g.translate(x, y); g.scale(s, s);
+  for (const [ox, w] of [[-5, 6], [5, 6], [0, 7]]) { ellipse(g, ox, 0, w, 7); g.fillStyle = '#ff8a2a'; g.fill(); ol(g, 1.6); }
+  rr(g, -1.2, -10, 2.4, 4, 1); g.fillStyle = '#3f8a2a'; g.fill();
+  const lit = .6 + .4 * Math.sin(t * 7 + x);
+  g.fillStyle = `rgba(255,${200 + lit * 40},80,1)`; poly(g, [[-5, -2], [-2, -2], [-3.5, -4.5]]); g.fill(); poly(g, [[2, -2], [5, -2], [3.5, -4.5]]); g.fill();
+  g.beginPath(); g.moveTo(-5, 2); g.lineTo(-2.5, 3.5); g.lineTo(0, 2); g.lineTo(2.5, 3.5); g.lineTo(5, 2); g.lineTo(3, 4.5); g.lineTo(-3, 4.5); g.closePath(); g.fill();
+  g.restore();
+}
+function drawGift(g, x, y, s, col, ribbon) { rr(g, x - s / 2, y - s, s, s, 2); g.fillStyle = col; g.fill(); ol(g, 1.8); g.fillStyle = ribbon; g.fillRect(x - 1.5, y - s, 3, s); g.fillRect(x - s / 2, y - s / 2 - 1.5, s, 3); circle(g, x - 2.5, y - s - 1.5, 2.2); g.fill(); circle(g, x + 2.5, y - s - 1.5, 2.2); g.fill(); }
+function drawRedLantern(g, x, y, s, t) {
+  g.save(); g.translate(x, y + Math.sin(t * 2 + x) * .8); g.scale(s, s);
+  ellipse(g, 0, 5, 6, 6.5); g.fillStyle = '#e5302a'; g.fill(); ol(g, 1.6); g.fillStyle = '#ffd23f'; g.fillRect(-3.5, -1.5, 7, 2); g.fillRect(-3.5, 10, 7, 2);
+  g.strokeStyle = '#ffd23f'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(0, 12); g.lineTo(0, 17); g.stroke();
+  glow(g, 0, 5, 12, '255,90,60', .3); g.restore();
+}
+// seasonal touches on the battlefield
+function seasonProps(map) {
+  if (map.seasonProps && map.seasonProps.k === season()) return map.seasonProps.list;
+  const k = season(), list = [];
+  if (k) {
+    const R = mulberry(map.def.seed * 13 + 7);
+    for (const l of mapLamps(map)) if (R() < .7) list.push({ x: l.x + (R() < .5 ? -12 : 12), y: l.y + 2 });
+    for (let i = 0; i < 8; i++) { const c = 1 + (R() * (COLS - 2) | 0), r = 1 + (R() * (ROWS - 2) | 0); if (map.grid[r][c] === 0 || map.grid[r][c] === 2) list.push({ x: (c + .5) * T, y: (r + .8) * T }); }
+  }
+  map.seasonProps = { k, list };
+  return list;
+}
+function drawSeason(g) {
+  const k = season(); if (!k || S.mode === 'demo' && view === 'home') return;
+  const list = seasonProps(S.map);
+  for (const p of list) {
+    if (k === 'halloween') drawPumpkin(g, p.x, p.y - 6, 1.1, S.anim);
+    else if (k === 'winter') drawGift(g, p.x, p.y, 10, ['#e5534b', '#4fc8ff', '#7ed957'][(p.x | 0) % 3], '#ffd23f');
+    else if (k === 'summer') { circle(g, p.x, p.y - 6, 6); g.fillStyle = '#fff'; g.fill(); g.save(); g.beginPath(); g.arc(p.x, p.y - 6, 6, 0, TAU); g.clip(); g.fillStyle = '#ff5a5a'; g.fillRect(p.x - 6, p.y - 12, 4, 12); g.fillStyle = '#4fc8ff'; g.fillRect(p.x + 2, p.y - 12, 4, 12); g.restore(); circle(g, p.x, p.y - 6, 6); ol(g, 1.6); }
+    else if (k === 'lny') drawRedLantern(g, p.x, p.y - 22, .9, S.anim);
+  }
+  // lamps get seasonal colours
+  if (k === 'winter') for (const [i, l] of mapLamps(S.map).entries()) { circle(g, l.x, l.y - 26, 2.4); g.fillStyle = ['#e5534b', '#7ed957', '#ffd23f', '#4fc8ff'][(i + Math.floor(S.anim * 2)) % 4]; g.fill(); }
+  if (k === 'lny') for (const l of mapLamps(S.map)) drawRedLantern(g, l.x, l.y - 30, .55, S.anim);
+}
+// a little seasonal hat on every infantry unit
+function drawSeasonHat(g, x, y, k) {
+  const s = season(); if (!s) return;
+  if (s === 'halloween') { poly(g, [[x - 7 * k, y], [x + 7 * k, y], [x + 1 * k, y - 11 * k]]); g.fillStyle = '#5a2a7a'; g.fill(); ol(g, 1.4); rr(g, x - 9 * k, y - 1.5 * k, 18 * k, 3 * k, 1.5); g.fillStyle = '#5a2a7a'; g.fill(); ol(g, 1.2); }
+  else if (s === 'winter') { poly(g, [[x - 6 * k, y], [x + 6 * k, y], [x + 4 * k, y - 10 * k]]); g.fillStyle = '#e5302a'; g.fill(); ol(g, 1.4); circle(g, x + 4 * k, y - 10 * k, 2.2 * k); g.fillStyle = '#fff'; g.fill(); rr(g, x - 7 * k, y - 2 * k, 14 * k, 3.4 * k, 1.7); g.fill(); }
+  else if (s === 'summer') { rr(g, x - 6 * k, y + 5 * k, 5 * k, 2.6 * k, 1); g.fillStyle = OUT; g.fill(); rr(g, x + 1 * k, y + 5 * k, 5 * k, 2.6 * k, 1); g.fill(); }
+  else if (s === 'lny') { rr(g, x - 5 * k, y - 4 * k, 10 * k, 5 * k, 2); g.fillStyle = '#e5302a'; g.fill(); ol(g, 1.2); g.fillStyle = '#ffd23f'; g.fillRect(x - 1, y - 3.5 * k, 2, 4 * k); }
+}
+function seasonalMapIdx() {
+  const k = season(), theme = k ? SEASONS[k].map : 'meadow', list = MAPS.map((m, i) => [m, i]).filter(([m]) => m.theme === theme && !m.custom);
+  return list.length ? list[(new Date().getDate()) % list.length][1] : 0;
+}
+
+// ----- squad chatter: short, funny lines between waves only -----
+const CHATTER = [
+  ['PHOENIX', 'Nice work. HQ is still standing, and so is my coffee.'], ['PHOENIX', 'If anyone asks, that was all part of the plan.'],
+  ['PHOENIX', 'Good. Now upgrade something before they come back angrier.'], ['PHOENIX', 'The Syndicate sent a complaint. I filed it under "victory".'],
+  ['ECHO', 'Their radio is just people yelling "why is it always the road".'], ['ECHO', 'I hacked their lunch order. Everyone is getting cabbage.'],
+  ['ECHO', 'Intel says the next wave is mad. Intel also says that every time.'], ['ECHO', 'Their commander just rage-quit a group chat. Morale is low.'],
+  ['SPECIALIST', 'Reloaded, refuelled, re-snacked. Ready.'], ['SPECIALIST', 'I counted the hits. Lost count. Lots.'],
+  ['SPECIALIST', 'Can we get a tower that makes sandwiches? Asking for me.'], ['PHOENIX', 'Remember: towers by the corners, coffee by the towers.'],
+];
+function chatter(first) {
+  if (!profile.settings.radio || !S || S.mode !== 'playing') return;
+  if (!first && Math.random() > .55) return;
+  const [who, text] = first ? ['PHOENIX', 'Build by the road, then hit Start. Let\'s show them who owns this map.'] : CHATTER[Math.random() * CHATTER.length | 0];
+  S.radio = { who: who === 'SPECIALIST' && S.rules.hero ? HEROES[S.rules.hero].name.toUpperCase() : who, text, life: 5, max: 5 };
+  Sfx.play('radio', true);
+}
+
+// ----- the Map Maker: draw a road, pick a theme, play it -----
+const CUSTOM_MAX = 6;
+const BASE_MAPS = MAPS.length;
+function customDefs() { return (profile.custom || []).filter(d => d && Array.isArray(d.pts) && d.pts.length >= 2); }
+function loadCustomMaps() {
+  MAPS.length = BASE_MAPS;
+  for (const d of customDefs()) MAPS.push(Object.assign({ custom: true }, d));
+}
+const MM = { tiles: [], theme: 'meadow', waves: 20, diff: 'Medium', name: 'My Map', cv: null, editIdx: -1 };
+function tilesToPts(tiles) {
+  const pts = [[-1, tiles[0][1]]];
+  for (let i = 0; i < tiles.length; i++) {
+    const p = tiles[i - 1] || [-1, tiles[0][1]], c = tiles[i], n = tiles[i + 1];
+    if (!n) { pts.push(c); break; }
+    const d1 = [c[0] - p[0], c[1] - p[1]], d2v = [n[0] - c[0], n[1] - c[1]];
+    if (d1[0] !== d2v[0] || d1[1] !== d2v[1]) pts.push(c);
+  }
+  return pts;
+}
+function mmDef() {
+  const D = { Easy: { gold: 190, lives: 25, hpMul: .9, stars: 1 }, Medium: { gold: 165, lives: 20, hpMul: 1, stars: 1.2 }, Hard: { gold: 150, lives: 15, hpMul: 1.2, stars: 1.5 } }[MM.diff];
+  return Object.assign({ id: 'custom-' + hashStr(JSON.stringify(MM.tiles) + MM.theme), name: MM.name.slice(0, 24) || 'My Map', theme: MM.theme, diff: MM.diff, seed: 200 + (hashStr(MM.name) % 500), waves: MM.waves, pts: tilesToPts(MM.tiles), custom: true }, D);
+}
+function mmProblem() {
+  const t = MM.tiles;
+  if (!t.length) return 'Click a tile on the left edge to start the road.';
+  if (t.length < 16) return `Keep drawing: the road needs at least 16 tiles (${t.length} so far).`;
+  const [ec, er] = t[t.length - 1];
+  if (ec < 2 || ec > COLS - 2 || er < 1 || er > ROWS - 2) return 'End the road away from the edges so HQ fits.';
+  return null;
+}
+function openMapMaker(idx = -1) {
+  MM.editIdx = idx;
+  const src = idx >= 0 ? customDefs()[idx] : null;
+  if (src) { MM.theme = src.theme; MM.waves = src.waves; MM.diff = src.diff; MM.name = src.name; MM.tiles = src.tiles ? src.tiles.slice() : []; }
+  else { MM.tiles = []; MM.name = 'My Map'; }
+  const modal = el('div', 'modal mm'); modal.id = 'mapMaker';
+  const card = el('div', 'card'); card.style.maxWidth = '1060px'; modal.appendChild(card);
+  card.innerHTML = `<div class="flex items-start justify-between gap-3"><div><h1>Map Maker</h1><div class="tag">Draw the road from the left edge, one tile at a time. HQ goes where the road ends.</div></div><button class="btn btn-wood btn-sm" id="mmBack">Back</button></div>`;
+  const wrap = el('div', 'mm-wrap'); card.appendChild(wrap);
+  const cvs = el('canvas', 'mm-cv'); cvs.width = W; cvs.height = H; wrap.appendChild(cvs); MM.cv = cvs;
+  const side = el('div', 'mm-side'); wrap.appendChild(side);
+  const nameIn = el('input', 'mm-name'); nameIn.value = MM.name; nameIn.maxLength = 24; nameIn.placeholder = 'Map name';
+  nameIn.addEventListener('input', () => { MM.name = nameIn.value; });
+  side.appendChild(el('label', 'mm-l', 'Name')); side.appendChild(nameIn);
+  const seg = (label, opts, key, after) => {
+    side.appendChild(el('label', 'mm-l', label));
+    const sg = el('div', 'seg mm-seg');
+    for (const [v, n] of opts) { const b = el('button', MM[key] === v ? 'on' : '', n); b.addEventListener('click', () => { MM[key] = v; Sfx.play('click', true); for (const x of sg.children) x.classList.toggle('on', x === b); if (after) after(); }); sg.appendChild(b); }
+    side.appendChild(sg);
+  };
+  seg('Theme', [['meadow', '🌲'], ['winter', '❄'], ['tropical', '🌴'], ['desert', '🏜'], ['halloween', '🌃'], ['volcano', '🌋']], 'theme', () => mmDraw());
+  seg('Waves', [[10, '10'], [20, '20'], [30, '30']], 'waves');
+  seg('Difficulty', [['Easy', 'Easy'], ['Medium', 'Med'], ['Hard', 'Hard']], 'diff');
+  const msg = el('p', 'note mm-msg'); side.appendChild(msg); MM.msg = msg;
+  const row = el('div', 'flex gap-2 flex-wrap');
+  row.appendChild(btn('btn-wood btn-sm', 'Undo', () => { MM.tiles.pop(); Sfx.play('click', true); mmDraw(); }));
+  row.appendChild(btn('btn-wood btn-sm', 'Clear', () => { MM.tiles = []; Sfx.play('click', true); mmDraw(); }));
+  side.appendChild(row);
+  const play = btn('btn-go btn-big mt-3', 'Save & Play', () => {
+    const prob = mmProblem(); if (prob) { Sfx.play('error', true); msg.textContent = prob; return; }
+    const def = mmDef(); def.tiles = MM.tiles.slice();
+    const list = customDefs().slice();
+    if (MM.editIdx >= 0) list[MM.editIdx] = def; else { list.unshift(def); if (list.length > CUSTOM_MAX) list.length = CUSTOM_MAX; }
+    profile.custom = list; saveProfile(); loadCustomMaps();
+    const idx = MAPS.findIndex(m => m.id === def.id);
+    modal.remove(); ui.modesModal.hidden = true; Sfx.play('start', true);
+    startRun('classic', idx);
+  });
+  side.appendChild(play);
+  // saved maps
+  const saved = customDefs();
+  if (saved.length) {
+    side.appendChild(el('label', 'mm-l', 'Your maps'));
+    const list = el('div', 'mm-list');
+    saved.forEach((d, i) => { const b = el('button', 'mm-saved', `${d.name} · ${THEMES[d.theme].name}`); b.addEventListener('click', () => { modal.remove(); openMapMaker(i); }); list.appendChild(b); });
+    side.appendChild(list);
+  }
+  const at = ev => { const r = cvs.getBoundingClientRect(); return [Math.floor((ev.clientX - r.left) / r.width * COLS), Math.floor((ev.clientY - r.top) / r.height * ROWS)]; };
+  let drag = false;
+  const tryAdd = ([c, r]) => {
+    if (c < 0 || r < 0 || c >= COLS || r >= ROWS) return;
+    const t = MM.tiles, last = t[t.length - 1];
+    if (last && last[0] === c && last[1] === r) return;
+    if (t.length > 1 && t[t.length - 2][0] === c && t[t.length - 2][1] === r) { t.pop(); mmDraw(); return; } // drag back to undo
+    if (!last) { if (c !== 0) { msg.textContent = 'Start on the left edge.'; return; } t.push([c, r]); mmDraw(); return; }
+    if (Math.abs(last[0] - c) + Math.abs(last[1] - r) !== 1) return;
+    if (t.some(([a, b]) => a === c && b === r)) { msg.textContent = 'The road can\'t cross itself.'; return; }
+    // keep a gap so roads don't run side by side
+    for (let i = 0; i < t.length - 2; i++) if (Math.abs(t[i][0] - c) + Math.abs(t[i][1] - r) === 1) { msg.textContent = 'Leave a gap between roads.'; return; }
+    t.push([c, r]); Sfx.play('tick', true); mmDraw();
+  };
+  cvs.addEventListener('pointerdown', ev => { drag = true; cvs.setPointerCapture(ev.pointerId); tryAdd(at(ev)); });
+  cvs.addEventListener('pointermove', ev => { if (drag) tryAdd(at(ev)); });
+  cvs.addEventListener('pointerup', () => { drag = false; });
+  card.querySelector('#mmBack').addEventListener('click', () => { modal.remove(); });
+  document.body.appendChild(modal);
+  mmDraw();
+}
+function mmDraw() {
+  const g = MM.cv.getContext('2d'), th = THEMES[MM.theme];
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = th.ground; g.fillRect(0, 0, W, H); g.fillStyle = th.check;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if ((r + c) & 1) { rr(g, c * T + .5, r * T + .5, T - 1, T - 1, 11); g.fill(); }
+  g.strokeStyle = 'rgba(43,36,24,.12)'; g.lineWidth = 1; for (let c = 1; c < COLS; c++) { g.beginPath(); g.moveTo(c * T, 0); g.lineTo(c * T, H); g.stroke(); } for (let r = 1; r < ROWS; r++) { g.beginPath(); g.moveTo(0, r * T); g.lineTo(W, r * T); g.stroke(); }
+  const t = MM.tiles;
+  if (!t.length) { g.fillStyle = 'rgba(255,255,255,.35)'; for (let r = 1; r < ROWS - 1; r++) { rr(g, 4, r * T + 4, T - 8, T - 8, 8); g.fill(); } }
+  if (t.length) {
+    const pts = tilesToPts(t).map(([c, r]) => ({ x: (c + .5) * T, y: (r + .5) * T })), path = () => { g.beginPath(); g.moveTo(pts[0].x, pts[0].y); for (const p of roundedPath(pts, T * .9)) g.lineTo(p.x, p.y); };
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    path(); g.lineWidth = 40; g.strokeStyle = OUT; g.stroke(); path(); g.lineWidth = 33; g.strokeStyle = th.road.base; g.stroke(); path(); g.lineWidth = 12; g.strokeStyle = th.road.mid; g.stroke();
+    const [ec, er] = t[t.length - 1]; drawBase(g, { def: { theme: MM.theme }, base: { x: (ec + .5) * T, y: (er + .5) * T } }, 0, 1);
+    const last = t[t.length - 1];
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const c = last[0] + dc, r = last[1] + dr; if (c < 0 || r < 0 || c >= COLS || r >= ROWS || t.some(([a, b]) => a === c && b === r)) continue; rr(g, c * T + 6, r * T + 6, T - 12, T - 12, 8); g.strokeStyle = 'rgba(255,255,255,.8)'; g.setLineDash([5, 5]); g.lineWidth = 2; g.stroke(); g.setLineDash([]); }
+  }
+  MM.msg.textContent = mmProblem() || `Looks great! ${t.length} tiles of road. Hit Save & Play.`;
+}
+loadCustomMaps();
 // ---------- home: the base hub. A cartoon camp you click around; the view drifts a little with the mouse. ----------
 const HUB_W = 1000, HUB_H = 640, HUB_M = 28;
 const HUB = [
@@ -8143,6 +8414,7 @@ function frame(now) {
   S.anim += dt;
   let scale = 1;
   if (S.hitstop > 0) { S.hitstop -= dt; scale = .12; } // a brief freeze-frame sells big hits
+  else if (S.slowmo > 0) { S.slowmo -= dt; scale = .3; } // boss kills play out in slow motion
   const atHub = view === 'home' && ui.pastTitle && !ui.home.hidden;
   if (((S.mode === 'playing' && !S.paused) || (S.mode === 'demo' && !atHub)) && !(blocked && S.mode === 'playing')) {
     let sim = dt * scale * (S.mode === 'demo' ? 1 : S.speed);
