@@ -239,6 +239,25 @@ button.pill{font-family:var(--font-display)}
 .rankcard{display:flex;align-items:center;gap:14px;background:#fff4c8;border:3px solid var(--ink);border-radius:18px;padding:12px 14px;margin-bottom:14px}
 .rankcard canvas{width:64px;height:64px}
 .rankcard .rn{font-family:var(--font-display);font-size:24px;color:var(--ink)}
+/* sticker album, loadouts, decorations */
+.album-lore{min-height:2.6em;background:#fff;border:3px solid var(--ink);border-radius:14px;padding:6px 10px;color:var(--text)}
+.stickers{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:10px}
+.sticker{display:flex;flex-direction:column;align-items:center;gap:2px;background:#fff;border:3px solid var(--ink);border-radius:16px;box-shadow:0 3px 0 rgba(43,36,24,.3);padding:6px 4px;font-size:11px;font-weight:900;color:var(--ink);transform:rotate(var(--rot,0deg));transition:transform .15s var(--pop);min-width:0;text-align:center;line-height:1.1}
+.sticker:hover{transform:rotate(0deg) scale(1.08)}
+.sticker canvas,.sticker img{width:46px;height:46px}
+.sticker.locked{background:var(--paper-3)} .sticker.locked canvas,.sticker.locked img{filter:brightness(0) opacity(.25)}
+.loadout{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:12px}
+.ld-tile{display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--paper-2);border:3px solid var(--ink);border-radius:16px;box-shadow:0 3px 0 var(--ink);padding:6px 4px;font-size:11.5px;font-weight:900;color:var(--ink)}
+.ld-tile canvas{width:52px;height:52px} .ld-tile.on{background:var(--gold);animation:jelly .4s ease}
+.menu-btn.small{padding:6px 12px} .menu-btn.small b{font-size:19px} .menu-btn.small .mb-ic{width:34px;height:34px;font-size:17px}
+.decor-bar{position:absolute;z-index:6;left:50%;transform:translateX(-50%);bottom:12px;width:min(900px,calc(100% - 24px));background:var(--paper);border:4px solid var(--ink);border-radius:22px;box-shadow:0 7px 0 rgba(43,36,24,.4);padding:8px 12px;display:flex;flex-direction:column;gap:6px}
+.db-t{font-family:var(--font-display);font-weight:400;font-size:20px;color:var(--ink)}
+.decor-list{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:thin}
+.dec{flex:none;display:flex;flex-direction:column;align-items:center;gap:1px;width:72px;background:#fff;border:3px solid var(--ink);border-radius:14px;padding:4px 2px;font-size:10px;font-weight:900;color:var(--ink);line-height:1.05;text-align:center}
+.dec canvas{width:40px;height:40px} .dec.on{background:var(--gold)} .dec.locked{opacity:.5}
+.home.decorating .hub-menu,.home.decorating .hub-hots{display:none}
+.node.side{width:clamp(30px,4vw,40px);height:clamp(30px,4vw,40px);background:#8a6ae0}
+.node.side.done{background:#6cc04a}
 /* campaign */
 .camp-card{max-width:1060px}
 .wtabs{display:flex;gap:8px;overflow-x:auto;margin-top:12px;padding:2px 2px 8px;scrollbar-width:thin}
@@ -617,7 +636,12 @@ body.touch .keys{display:none}
     </section>
     <button class="menu-btn" id="modesBtn"><span class="mb-ic">⚔</span><span><b>Battle modes</b><small>Classic, Endless, Boss Rush and the Daily Op</small></span></button>
     <div class="menu-grid" id="menuGrid"></div>
+    <button class="menu-btn small" id="decorBtn"><span class="mb-ic">🌼</span><span><b>Decorate base</b></span></button>
   </aside>
+  <div class="decor-bar" id="decorBar" hidden>
+    <div class="flex items-center justify-between gap-2"><b class="db-t">Decorate</b><span class="note" id="decorHint"></span><button class="btn btn-gold btn-sm" id="decorDone">Done</button></div>
+    <div class="decor-list" id="decorList"></div>
+  </div>
   <p class="home-foot" id="homeFoot">Click a building to visit it.</p>
 </div>
 
@@ -1164,6 +1188,13 @@ const SKINS = [
   { id: 'shadow', name: 'Black Ops', gems: 90, camo: CAMO.blackops, desc: 'Matte black with a hint of red.' },
   { id: 'gilded', name: 'Gold Plated', gems: 120, camo: CAMO.gold, fx: '#ffe066', desc: 'Every armour plate in polished gold.' },
 ];
+// Prestige camo can't be bought: it's earned on Hard mode.
+const PRESTIGE = [
+  { id: 'veteran', name: 'Veteran Steel', camo: ['#5a6a7a', '#3a4654', '#8a9aaa', '#c9d0d6'], need: p => Object.keys(p.camp.hard).length >= 10, how: 'Clear 10 missions on Hard', fx: '#c9d0d6' },
+  { id: 'elite', name: 'Elite Crimson', camo: ['#7a1e24', '#4a1216', '#b02a32', '#ffd23f'], need: p => [0, 1, 2, 3, 4, 5].every(w => p.camp.hard[`${w + 1}-10`]), how: 'Beat all 6 commanders on Hard', fx: '#ff6a6a' },
+  { id: 'legend', name: 'Phoenix Legend', camo: ['#ff7a1a', '#c0390b', '#ffd23f', '#fff2b0'], need: p => Object.keys(p.camp.hard).length >= 30, how: 'Clear 30 missions on Hard', fx: '#ffb347' },
+];
+for (const pr of PRESTIGE) SKINS.push({ id: pr.id, name: pr.name, gems: 0, camo: pr.camo, fx: pr.fx, desc: 'Prestige: ' + pr.how + '.', prestige: pr });
 // Signature tunes, one per map: [scale degree, length in 16th notes] per bar; degree 7 is the tonic.
 const MAP_TUNES = {
   meadow: {
@@ -1237,6 +1268,13 @@ const DAILY_MODS = [
   { id: 'glass',    name: 'Damaged HQ',      desc: 'Half HQ HP, double wave bonus',       apply: r => { r.lives = Math.ceil(r.lives / 2); r.bonusMul = 2; } },
   { id: 'tide',     name: 'Field Hospital',  desc: 'Field Medics from wave 2',            apply: r => { r.healerFrom = 2; } },
   { id: 'ban',      name: 'Tower Ban',       desc: '',                                    apply: () => {} },
+  { id: 'giants',   name: 'Giants',          desc: 'Bigger, tougher (+60%), slower hostiles', apply: r => { r.hpMul *= 1.6; r.speedMul *= .85; r.bigMul = 1.25; } },
+  { id: 'drones',   name: 'Double Drones',   desc: 'Drones from wave 2, lots of them',      apply: r => { r.flyerFrom = 2; r.flyerW = 2.6; } },
+  { id: 'six',      name: 'Six Pack',        desc: 'Build at most 6 towers',                apply: r => { r.towerLimit = 6; r.goldMul *= 1.15; } },
+  { id: 'loadout',  name: 'Loadout',         desc: 'Pick 6 towers before you deploy',       apply: r => { r.loadout = 6; } },
+  { id: 'night',    name: 'Night Ops',       desc: 'Always night, stealth units from wave 4', apply: r => { r.forceNight = true; r.ghostFrom = 4; r.ghostW = 1.6; } },
+  { id: 'rain',     name: 'Money Rain',      desc: '+$150 to start, Money Farms pay double', apply: r => { r.startGold += 150; r.farmMul = 2; } },
+  { id: 'cannon',   name: 'Glass Cannon',    desc: 'Towers +30% damage, half HQ HP',        apply: r => { r.dmgMul = 1.3; r.lives = Math.ceil(r.lives / 2); } },
 ];
 
 // ---------- the squad ----------
@@ -1442,7 +1480,7 @@ WORLDS.forEach((wd, w) => {
     });
   }
 });
-const levelById = id => LEVELS.find(l => l.id === id);
+const levelById = id => LEVELS.find(l => l.id === id) || SIDE_OPS.find(l => l.id === id);
 
 // ---------- comic cutscenes ----------
 // Cast kinds: phoenix, spec (your specialist), echo, warden, general (the region's commander), unit (a Syndicate unit), cage, tower, item.
@@ -1969,6 +2007,7 @@ function loadProfile() {
     camp: { cleared: {}, hard: {}, seen: {} },
     quests: { daily: null, weekly: null }, chests: [], freeChestAt: num(p.freeChestAt),
     streak: { last: '', count: 0, best: 0, claimed: '' }, tutorialDone: !!p.tutorialDone,
+    album: { got: {}, claimed: {} }, decor: { owned: {}, placed: [] },
   };
   for (const k in prof.perks) prof.perks[k] = Math.min(PERK_MAX, num(p.perks && p.perks[k]));
   for (const k in prof.stats) prof.stats[k] = num(p.stats && p.stats[k]);
@@ -1986,6 +2025,8 @@ function loadProfile() {
   if (p.trails) { for (const k in p.trails.owned || {}) if (TRAILS.some(t => t.id === k)) prof.trails.owned[k] = true; if (prof.trails.owned[p.trails.active]) prof.trails.active = p.trails.active; }
   if (p.titles) { for (const k in p.titles.owned || {}) if (TITLES.some(t => t.id === k)) prof.titles.owned[k] = true; if (prof.titles.owned[p.titles.active]) prof.titles.active = p.titles.active; }
   if (p.camp) for (const k of ['cleared', 'hard', 'seen']) for (const id in obj(p.camp[k]) || {}) prof.camp[k][id] = true;
+  if (obj(p.album)) { for (const k in obj(p.album.got) || {}) prof.album.got[k] = true; for (const k in obj(p.album.claimed) || {}) prof.album.claimed[k] = true; }
+  if (obj(p.decor)) { for (const k in obj(p.decor.owned) || {}) prof.decor.owned[k] = true; if (Array.isArray(p.decor.placed)) prof.decor.placed = p.decor.placed.filter(d => d && typeof d.id === 'string' && isFinite(d.x) && isFinite(d.y)).slice(0, 60); }
   if (obj(p.quests)) prof.quests = { daily: obj(p.quests.daily), weekly: obj(p.quests.weekly) };
   if (Array.isArray(p.chests)) prof.chests = p.chests.filter(c => c && CHESTS[c.tier]).slice(0, 40);
   if (obj(p.streak)) Object.assign(prof.streak, { last: String(p.streak.last || ''), count: num(p.streak.count), best: num(p.streak.best), claimed: String(p.streak.claimed || '') });
@@ -2036,7 +2077,7 @@ function makeRules(mode, mapIdx, demo = false, level = null, hard = false) {
     rangeMul: 1 + .03 * (pk.radar || 0), cdMul: 1 - .06 * (pk.airfield || 0), engineerFrom: mode === 'bossrush' ? 999 : 10,
   };
   if (r.hero === 'anvil') r.lives += 5;
-  if (r.bossRush) { r.startGold += 300; r.bonusMul = 1.5; }
+  if (r.bossRush) { r.startGold += 300; r.bonusMul = 1.5; r.loadout = 8; }
   const L = mode === 'campaign' ? levelById(level) : null;
   if (L) {
     r.maxWave = L.waves; r.campaign = L.id; r.hpMul *= L.hp; r.startGold += L.w * 30;
@@ -2150,6 +2191,8 @@ const Sfx = {
       case 'whack': this.thump(240 * v, .08, .25); this.noise(.05, .1, 3500, 1000, 0, { type: 'bandpass' }); break;
       case 'bonk': this.tone(900 * v, 300, .14, .1, 'triangle'); this.thump(180, .12, .3); break;
       case 'vine': this.noise(.3, .1, 1200, 300, 0, { type: 'bandpass', q: 3 }); this.tone(200, 120, .3, .05, 'sine'); break;
+      case 'stampede': for (let i = 0; i < 6; i++) this.thump(110 + i * 8, .15, .18, i * .09); this.tone(700, 500, .25, .05, 'triangle', .1); break;
+      case 'splash': this.noise(.6, .18, 3000, 300, 0, { rev: .4 }); break;
       case 'thunder': this.noise(2.4, .3, 600, 40, 0, { rev: .6, att: .05 }); this.thump(50, 1.6, .3, .05); break;
     }
   },
@@ -2625,7 +2668,7 @@ function heroDmgMul(type) {
   return 1;
 }
 const costOf = (type, lvl) => Math.round(TOWERS[type].levels[lvl].cost * (S ? S.rules.costMul * heroCostMul(type, lvl) : 1));
-const available = type => S.mode === 'demo' || (isUnlocked(type) && S.rules.banned !== type);
+const available = type => S.mode === 'demo' || (isUnlocked(type) && S.rules.banned !== type && (!S.loadout || S.loadout.includes(type)));
 
 function bestKey() { return `${S.rules.mode}:${S.map.def.id}`; }
 const branchCost = (type, b) => Math.round(BRANCHES[type][b].cost * S.rules.costMul * (S.rules.hero === 'anvil' ? .9 : 1));
@@ -2684,6 +2727,7 @@ function waveSummary(n) {
 function clearBonus(n) { return Math.round((15 + n * 3) * S.rules.bonusMul); }
 function canCallWave() {
   if (!S || S.mode !== 'playing') return false;
+  if (S.rules.loadout && !S.loadout) return false;
   if (S.rules.maxWave && S.wave >= S.rules.maxWave && !S.endlessCont) return false;
   return !S.waveActive || S.spawnIdx >= S.spawnList.length;
 }
@@ -2709,7 +2753,7 @@ function startWave() {
   }
   if (S.wave > getBest()) setBest(S.wave);
   // time of day moves on and the weather may turn
-  S.todT = .3 + S.wave * .125;
+  S.todT = S.rules.forceNight ? .78 + Math.floor(S.tod) : .3 + S.wave * .125;
   const opts = WEATHER[S.map.def.theme], nw = S.wave < 2 ? S.weather : opts[Math.random() * opts.length | 0];
   let note = null;
   if (nw !== S.weather) { S.weather = nw; note = WEATHER_FX[nw] ? WEATHER_FX[nw].text : WEATHER_TEXT[nw]; }
@@ -2719,12 +2763,13 @@ function startWave() {
   if (!bossWave) Sfx.play('wave'); else radio('boss');
   if (S.wave === 1) radio('start');
   S.dropT = (S.dropT || 0) || 18 + Math.random() * 10;
+  maybeEvent();
   ui.previewKey = '';
 }
 function waveComplete() {
   S.waveActive = false; S.cleared++;
   const bonus = clearBonus(S.wave);
-  S.gold += bonus; S.goldEarned += bonus; S.dirty = true; farmPayout();
+  S.gold += bonus; S.goldEarned += bonus; S.dirty = true; farmPayout(); eventWaveEnd();
   questEvent('wave'); if (S.lives >= S.livesAtWave) { questEvent('perfect'); callGain(12); }
   heroXp(2);
   questEvent('gold', S.goldEarned - S.goldMark); S.goldMark = S.goldEarned;
@@ -2749,7 +2794,7 @@ function spawnEnemy(type, dist = 0, spec = null) {
     speed: def.speed * T * S.rules.speedMul, slow: 0, slowT: 0, flash: 0, burn: 0, burnDps: 0, burnTw: null,
     seed: Math.random(), healT: 1 + Math.random(), alive: true,
     stun: 0, brittle: 0, brittleAmt: 0, dmgAcc: 0, dmgT: 0, dmgCrit: false, squash: 0,
-    big: king ? 1.35 : mini ? 1.15 : 1, king: king ? S.rules.kingName : mini && S.rules.mini ? S.rules.mini.name : null,
+    big: (king ? 1.35 : mini ? 1.15 : 1) * (S.rules.bigMul || 1), king: king ? S.rules.kingName : mini && S.rules.mini ? S.rules.mini.name : null,
     shield: 0, shieldMax: 0, phase: 0, abil: mini && S.rules.mini ? [S.rules.mini.ab] : [], abilT: 5, plan: king ? S.rules.bossPlan : null,
     enr: 1, hasteT: 0, vanish: 0, revealed: false, mini,
   };
@@ -2803,7 +2848,7 @@ const hiddenFrom = e => e.vanish > 0 || (e.def.ghost && !e.revealed);
 function applyDamage(e, amt, src, tw, flash = true, crit = false) {
   if (!e.alive || !(amt > 0)) return;
   if (src !== 'hero' && hiddenFrom(e)) return; // hidden ghosts and vanished bosses can't be hit
-  if (tw) { amt *= heroDmgMul(tw.type); if (flash && !crit && tw.buff && tw.buff.crit && Math.random() < tw.buff.crit) { amt *= 2; crit = true; } }
+  if (tw) { amt *= heroDmgMul(tw.type) * (S.rules.dmgMul || 1); if (flash && !crit && tw.buff && tw.buff.crit && Math.random() < tw.buff.crit) { amt *= 2; crit = true; } }
   if (e.shield > 0) {
     const a = Math.min(e.shield, amt); e.shield -= a; amt -= a;
     if (e.shield <= 0) { addText(e.x, e.y - 40, 'Shield broken!', '#9fe3ff', 17); Sfx.play('shatter'); S.rings.push({ x: e.x, y: e.y, r: 10, max: 70, life: .4, maxLife: .4, color: '160,220,255' }); }
@@ -2854,6 +2899,7 @@ function killEnemy(e, tw) {
   flushDmg(e);
   deathFx(e);
   if (tw) { tw.kills++; checkVet(tw); }
+  if (S.mode === 'playing') albumAdd('e:' + e.type);
   callGain(e.def.boss ? 15 : .7);
   if (S.mode === 'demo') {
     if (e.def.split) for (let i = 0; i < e.def.split; i++) spawnEnemy('mini', Math.max(0, e.dist - 6 - i * 12));
@@ -2927,7 +2973,7 @@ function updateEnemies(dt) {
       e.stun -= dt;
       if (Math.random() < dt * 6) S.particles.push({ x: e.x + (Math.random() - .5) * 14, y: e.y - e.def.r * T - 4, vx: 0, vy: -10, life: .4, max: .4, size: 2.5, color: '#fff3a0', kind: 'star' });
     } else if (!(e.def.sabotage && S.mode === 'playing' && updateSaboteur(e, dt))) {
-      const step = e.speed * (1 - e.slow) * e.enr * (e.hasteT > 0 ? 1.4 : 1) * (S.arena === 'winter' && !e.def.fly ? 1.2 : 1) * dt, alt = S.map.alt;
+      const step = e.speed * (1 - e.slow) * e.enr * (e.hasteT > 0 ? 1.4 : 1) * (S.arena === 'winter' && !e.def.fly ? 1.2 : 1) * (1 - floodSlow(e)) * dt, alt = S.map.alt;
       if (e.detour != null) { e.detour += step; if (e.detour >= alt.len) { e.dist = alt.join + (e.detour - alt.len); e.detour = null; } else e.dist = alt.fork + (alt.join - alt.fork) * e.detour / alt.len; }
       else { const nd = e.dist + step; if (S.switchOn && alt && !e.def.fly && e.dist < alt.fork && nd >= alt.fork) { e.detour = nd - alt.fork; e.dist = alt.fork; } else e.dist = nd; }
     }
@@ -3077,7 +3123,7 @@ function farmPayout() {
   let total = 0;
   for (const tw of S.towers) {
     if (tw.type !== 'farm') continue;
-    const L = towerStats(tw), amt = Math.round(L.income + (L.interest ? Math.min(L.interestCap, S.gold * L.interest) : 0));
+    const L = towerStats(tw), amt = Math.round((L.income + (L.interest ? Math.min(L.interestCap, S.gold * L.interest) : 0)) * (S.rules.farmMul || 1));
     total += amt; tw.earned = (tw.earned || 0) + amt; addText(tw.x, tw.y - 40, '+$' + amt, '#8ee05a', 18); tw.flash = .6;
     for (let k = 0; k < 6; k++) S.particles.push({ kind: 'coinfly', x: tw.x, y: tw.y - 10, sx: tw.x + (Math.random() - .5) * 50, sy: tw.y - 50 - Math.random() * 40, vx: 0, vy: 0, life: .8 + k * .05, max: .8 + k * .05, size: 4.2, color: '#6cbf3a' });
   }
@@ -3410,7 +3456,7 @@ function update(dt) {
   updateProjectiles(dt);
   updateHoles(dt);
   updateCars(dt);
-  if (S.mode === 'playing') { updateHero(dt); updateSquads(dt); updateArena(dt); }
+  if (S.mode === 'playing') { updateHero(dt); updateSquads(dt); updateArena(dt); updateEvents(dt); }
   S.enemies = S.enemies.filter(e => e.alive);
   updateFx(dt);
   if (S.mode === 'demo') {
@@ -3522,6 +3568,7 @@ function upgradeTower(tw, branch = null) {
     if (branch == null) { showToast('Choose a specialisation', 'Pick one of the two paths in the tower panel.'); return false; }
     const B = BRANCHES[tw.type][branch], cost = branchCost(tw.type, branch);
     if (S.gold < cost) { Sfx.play('error'); addText(tw.x, tw.y - 34, 'Need more money', '#ffb0a0', 14); return false; }
+    albumAdd(`b:${tw.type}:${branch}`);
     S.gold -= cost; tw.spent += cost; tw.branch = branch; tw._statsKey = null; tw.born = S.anim; S.dirty = true; S.buffT = 0; questEvent('upgrade');
     for (let k = 0; k < 24; k++) { const a = k / 24 * TAU; S.particles.push({ x: tw.x, y: tw.y - 8, vx: Math.cos(a) * 140, vy: Math.sin(a) * 140 - 30, life: .7, max: .7, size: 3.5, color: B.color, kind: 'star' }); }
     S.rings.push({ x: tw.x, y: tw.y, r: 8, max: 60, life: .55, maxLife: .55, color: '255,230,140' });
@@ -3600,11 +3647,12 @@ function beginRun(mode, mapIdx, opts) {
     addBanner(`${L.id}: ${L.title}${S.hard ? ' (Hard)' : ''}`, S.rules.mods.length ? S.rules.mods.map(m => m.name).join(' + ') : `Survive ${S.rules.maxWave} waves`, '#fff3c4');
   } else addBanner(MAPS[mapIdx].name, mode === 'daily' ? 'Daily: ' + S.rules.mods.map(m => m.name).join(' + ') : MODES[mode].name + ' · build towers, then start wave 1', '#fff3c4');
   if (typeof onRunStart === 'function') onRunStart();
+  if (S.rules.loadout && !S.loadout && mode !== 'demo') setTimeout(() => openLoadout(S.rules.loadout), 600);
 }
 
 // ---------- autosave: the run is saved between waves ----------
 const SAVE_KEY = 'meadowguard.save.v1';
-const SAVE_FIELDS = ['switchOn', 'callPts', 'gold', 'lives', 'cleared', 'speed', 'auto', 'endlessCont', 'won', 'coinsAwarded', 'runCoins', 'kills', 'goldEarned', 'bestCombo', 'prevBest', 'weather', 'powerCd', 'flyersKilled', 'ghostsKilled', 'bossesKilled'];
+const SAVE_FIELDS = ['loadout', 'lastEvent', 'switchOn', 'callPts', 'gold', 'lives', 'cleared', 'speed', 'auto', 'endlessCont', 'won', 'coinsAwarded', 'runCoins', 'kills', 'goldEarned', 'bestCombo', 'prevBest', 'weather', 'powerCd', 'flyersKilled', 'ghostsKilled', 'bossesKilled'];
 function saveRun() {
   if (!S || S.mode !== 'playing' || S.waveActive) return;
   const d = { v: 2, mode: S.rules.mode, mapIdx: S.mapIdx, level: S.level, hard: S.hard, daily: S.rules.mode === 'daily' ? todayKey() : null, wave: S.wave, maxLives: S.maxLives,
@@ -3725,13 +3773,15 @@ function levelRewards(L, hard) {
     book[L.id] = true;
     if (!hard) profile.camp.cleared[L.id] = true;
     r.coins = addCoins((120 + L.idx * 12) * (hard ? 2 : 1) * COIN_RATE);
-    r.gems = addGems(hard ? 15 : L.boss ? 15 : 5);
+    r.gems = addGems(hard ? 15 : L.boss ? 15 : L.side ? 20 : 5);
+    if (L.side) { syncDecorUnlocks(); r.decor = DECOR_ITEMS.find(d => d.from === 'side:' + L.id.replace('-S', '-')); }
     r.chest = L.boss ? (hard ? 'royal' : 'gold') : hard ? 'gold' : 'wood';
     giveChest(r.chest);
     if (L.boss || (L.mini && Math.random() < .5)) r.relic = grantRelic(rollRelic());
   } else r.coins = addCoins((40 + L.idx * 3) * COIN_RATE);
   profile.stats.levels++; questEvent('level');
   saveProfile();
+  if (hard) checkPrestige();
   return r;
 }
 function victory() {
@@ -3745,12 +3795,13 @@ function victory() {
     finalizeRun(); clearSave();
     const nxt = LEVELS[L.idx + 1];
     S.after = L.boss && S.reward.first && !S.hard ? (L.w === 5 ? 'finale' : 'won') : null;
-    ui.wonTtl.textContent = L.boss ? `${L.world.name} liberated!` : 'Mission complete!';
+    ui.wonTtl.textContent = L.boss ? `${L.world.name} liberated!` : L.side ? 'Side op complete!' : 'Mission complete!';
     ui.wonMap.textContent = L.boss ? `${L.world.boss} is down!` : `${L.id}: ${L.title}${S.hard ? ' (Hard)' : ''}`;
     const parts = [`+${fmt(S.runCoins + S.reward.coins)} coins`];
     if (S.reward.gems) parts.push(`+${S.reward.gems} gems`);
     if (S.reward.chest) parts.push(CHESTS[S.reward.chest].name);
     if (S.reward.relic) parts.push(`Mod: ${S.reward.relic.name}`);
+    if (S.reward.decor) parts.push(`Decor: ${S.reward.decor.name}`);
     if (S.xpGain) parts.push(`+${fmt(S.xpGain)} XP`);
     ui.wonStars.textContent = parts.join(' · ');
     ui.wonHint.textContent = S.reward.first ? (S.hard ? 'Hard mode first clear. Legendary!' : 'First clear bonus included. Hard mode is now open for this mission.') : 'Replay rewards collected.';
@@ -5465,7 +5516,7 @@ function render() {
   if (S.map.def.water) drawWaterAnim(g);
   // black holes sit on the ground under everything
   for (const h of S.holes) drawHole(g, h);
-  if (!demo) { drawArena(g); drawLever(g); }
+  if (!demo) { drawArena(g); drawLever(g); drawEvents(g); }
   const th = THEMES[S.map.def.theme];
   for (const d of S.map.decor) drawDecor(g, d.kind, decorX(d), decorY(d), d.s, d.j, th, S.anim, S.wind);
   if (!demo) {
@@ -5695,6 +5746,7 @@ function drawHole(g, h) {
 // Time of day follows the waves: morning, golden hour, a short candle-lit night, then dawn.
 const lightCv = document.createElement('canvas');
 function drawLighting(g) {
+  if (S.rules.forceNight || S.arena === 'halloween') S.tod = Math.floor(S.tod) + .78;
   const theme = S.map.def.theme, p = ((S.tod % 1) + 1) % 1, strength = theme === 'halloween' ? .55 : theme === 'volcano' ? .7 : 1;
   const bump = (c, w) => Math.max(0, 1 - Math.abs(p - c) / w);
   const night = clamp(Math.min((p - .6) / .1, (.97 - p) / .07), 0, 1) * strength, dusk = bump(.55, .09) * strength, dawn = bump(.02, .06) * strength;
@@ -6116,6 +6168,7 @@ const ui = {
   loadFill: $('loadFill'), loadMarch: $('loadMarch'), loadStage: $('loadStage'), loadPct: $('loadPct'), loadSkip: $('loadSkip'), loadWho: $('loadWho'), loadWhoName: $('loadWhoName'),
   hubCv: $('hubCv'), hubHots: $('hubHots'), hubMenu: $('hubMenu'), menuGrid: $('menuGrid'), modesBtn: $('modesBtn'), modesModal: $('modesModal'), modesBack: $('modesBack'),
   callFill: $('callFill'), callNum: $('callNum'), callBtns: [...document.querySelectorAll('#callins button')],
+  decorBtn: $('decorBtn'), decorBar: $('decorBar'), decorList: $('decorList'), decorHint: $('decorHint'), decorDone: $('decorDone'),
   baseModal: $('baseModal'), baseTtl: $('baseTtl'), baseBack: $('baseBack'),
   coach: $('coach'), coachArt: $('coachArt'), coachTtl: $('coachTtl'), coachTxt: $('coachTxt'), coachSkip: $('coachSkip'), motes: $('motes'),
   tab: 'quests', campW: 0, campSel: 0, campHard: false, endConfirm: 0, afterHome: null, relicOpen: false, powerKey: '', uiMode: '',
@@ -6320,6 +6373,7 @@ function renderTop() {
 }
 function renderHome() {
   refreshQuests();
+  syncDecorUnlocks(); checkPrestige();
   renderTop(); renderContinue(); renderStory(); renderHubHots(); if (!ui.baseModal.hidden) renderTabs();
   drainRewards();
 }
@@ -6391,10 +6445,11 @@ ui.contEnd.addEventListener('click', () => {
 
 // ----- tabs -----
 const TABS = [
-  ['quests', 'Orders'], ['chests', 'Crates'], ['heroes', 'Squad'], ['hq', 'HQ'], ['towers', 'Towers'], ['shop', 'Armory'], ['relics', 'Gear Mods'], ['records', 'Service Record'],
+  ['quests', 'Orders'], ['chests', 'Crates'], ['heroes', 'Squad'], ['hq', 'HQ'], ['towers', 'Towers'], ['shop', 'Armory'], ['relics', 'Gear Mods'], ['records', 'Service Record'], ['album', 'Sticker Album'],
 ];
 function tabDots(id) {
   if (id === 'quests') { let n = streakReady() ? 1 : 0; for (const s of ['daily', 'weekly']) for (const q of profile.quests[s].list) if (q.done && !q.claimed) n++; return n; }
+  if (id === 'album') return albumPages().filter(p => !profile.album.claimed[p.id] && p.items.every(i => albumHas(i.key))).length;
   if (id === 'chests') return profile.chests.length + (freeChestReady() ? 1 : 0);
   if (id === 'towers') return TOWER_ORDER.filter(t => !isUnlocked(t) && profile.coins >= TOWERS[t].unlock).length;
   if (id === 'hq') return PERKS.filter(p => profile.perks[p.id] < PERK_MAX && profile.coins >= PERK_COSTS[profile.perks[p.id]]).length;
@@ -6410,7 +6465,7 @@ function renderTabs(pop = false) {
   }
   ui.baseTtl.textContent = (HUB.find(h => h.id === ui.tab) || { name: 'Base' }).name;
   const body = ui.tabBody; body.innerHTML = '';
-  ({ quests: tabQuests, chests: tabChests, heroes: tabHeroes, hq: tabHq, shop: tabShop, towers: tabTowers, relics: tabRelics, records: tabRecords })[ui.tab || 'quests'](body);
+  ({ quests: tabQuests, chests: tabChests, heroes: tabHeroes, hq: tabHq, shop: tabShop, towers: tabTowers, relics: tabRelics, records: tabRecords, album: tabAlbum })[ui.tab || 'quests'](body);
   if (pop && !REDUCED) { body.classList.remove('pop'); void body.offsetWidth; body.classList.add('pop'); }
 }
 const refreshHome = () => { if (view === 'home' && ui.pastTitle) { renderTop(); if (!ui.baseModal.hidden) renderTabs(); renderHubHots(); } };
@@ -6530,7 +6585,7 @@ function tabShop(body) {
   const sk = el('div', 'grid-cards');
   for (const s of SKINS) {
     const owned = !!profile.skins.owned[s.id], on = profile.skins.active === s.id;
-    sk.appendChild(shopItem(skinIcon(s), s.name, s.desc, on ? 'on' : owned ? 'owned' : 'buy',
+    sk.appendChild(shopItem(skinIcon(s), s.name, s.desc, on ? 'on' : owned ? 'owned' : s.prestige ? 'locked' : 'buy',
       () => { profile.skins.owned[s.id] = true; profile.skins.active = s.id; celebrate({ title: 'New tower camo!', items: [{ kind: 'skin', id: s.id }] }); },
       () => { profile.skins.active = s.id; saveProfile(); Sfx.play('click', true); refreshHome(); }, s.gems));
   }
@@ -6778,13 +6833,26 @@ function openCampaign(w = 0, sel = null) {
     b.addEventListener('click', () => { Sfx.play('click', true); selectLevel(L.idx); });
     ui.campMap.appendChild(b);
   });
+  // side ops: an either/or fork that branches off after mission 5
+  const taken = sideTaken(w);
+  SIDE_OPS.filter(o => o.w === w).forEach((o, k) => {
+    const open = sideUnlocked(o) && (!taken || taken === o), b = el('button', 'node side' + (profile.camp.cleared[o.id] ? ' done' : ''));
+    b.style.left = (40 + k * 12) + '%'; b.style.top = '91%'; b.dataset.side = o.id;
+    b.appendChild(el('span', 'lbl', o.sideKey)); b.disabled = !open;
+    if (profile.camp.cleared[o.id]) b.appendChild(el('span', 'ok', '✓'));
+    b.setAttribute('aria-label', `Side op ${o.title}${taken && taken !== o ? ': path not taken' : ''}`);
+    b.title = taken && taken !== o ? 'Path not taken' : sideUnlocked(o) ? `Side op: ${o.title}` : 'Clear mission 5 to unlock this side op';
+    b.addEventListener('click', () => { Sfx.play('click', true); selectSide(o.id); });
+    ui.campMap.appendChild(b);
+  });
   const pick = sel != null && LEVELS[sel] && LEVELS[sel].w === w && levelUnlocked(LEVELS[sel]) ? sel : firstOpen ? firstOpen.idx : lv.filter(levelUnlocked).pop().idx;
   ui.campHard = false;
   selectLevel(pick);
   ui.campaign.hidden = false;
 }
 function selectLevel(idx) {
-  ui.campSel = idx;
+  ui.campSel = idx; ui.campSide = null;
+  ui.campMap.querySelectorAll('.node.side').forEach(n => n.classList.remove('sel'));
   const L = LEVELS[idx], map = MAPS.find(m => m.id === L.map), th = THEMES[L.world.theme];
   [...ui.campMap.querySelectorAll('.node')].forEach((n, k) => n.classList.toggle('sel', k === L.i));
   ui.campWorld.textContent = `Region ${L.w + 1} · ${L.world.name}`; ui.campWorld.style.background = th.chip;
@@ -6805,11 +6873,26 @@ function selectLevel(idx) {
   ui.campReward.textContent = first
     ? `First clear: ${fmt((120 + L.idx * 12) * (hard ? 2 : 1))} coins · ${hard ? 15 : L.boss ? 15 : 5} gems · ${chest} Crate${L.boss ? ' · a gear mod' : L.mini ? ' · maybe a gear mod' : ''}`
     : `Cleared ✓ · replays pay ${fmt(40 + L.idx * 3)} coins plus wave coins`;
-  ui.campPlay.textContent = hard ? 'Deploy (Hard)' : 'Deploy';
+  ui.campPlay.textContent = hard ? 'Deploy (Hard)' : 'Deploy'; ui.campPlay.disabled = false;
   ui.campPlay.className = 'btn btn-big ' + (hard ? 'btn-red' : 'btn-go');
 }
 ui.campDiff.addEventListener('click', ev => { const b = ev.target.closest('button'); if (!b || b.disabled) return; ui.campHard = b.dataset.h === '1'; Sfx.play('click', true); selectLevel(ui.campSel); });
-ui.campPlay.addEventListener('click', () => { Sfx.unlock(); playLevel(LEVELS[ui.campSel], ui.campHard); });
+ui.campPlay.addEventListener('click', () => { Sfx.unlock(); if (ui.campSide) playLevel(levelById(ui.campSide), false); else playLevel(LEVELS[ui.campSel], ui.campHard); });
+function selectSide(id) {
+  const L = levelById(id), map = MAPS.find(m => m.id === L.map), th = THEMES[L.world.theme], taken = sideTaken(L.w);
+  ui.campSide = id; ui.campHard = false;
+  [...ui.campMap.querySelectorAll('.node')].forEach(n => n.classList.toggle('sel', n.dataset.side === id));
+  ui.campWorld.textContent = `Region ${L.w + 1} · Side op`; ui.campWorld.style.background = '#8a6ae0';
+  ui.campTitle.textContent = L.title;
+  ui.campIntro.textContent = L.line + (taken && taken !== L ? ' (You took the other path.)' : ' Choose one: clearing it closes the other side op.');
+  ui.campFacts.innerHTML = '';
+  for (const [t, c] of [[map.name, ''], [`${L.waves} waves`, ''], [`${TWISTS[L.twist].name}: ${TWISTS[L.twist].desc}`, 'tw']]) ui.campFacts.appendChild(el('span', 'fact ' + c, t));
+  const d = DECOR_ITEMS.find(x => x.from === 'side:' + L.id.replace('-S', '-'));
+  ui.campReward.textContent = profile.camp.cleared[id] ? 'Cleared ✓' : `First clear: 20 gems · ${d ? d.name + ' decoration' : ''} · coins`;
+  const [nb, hb] = ui.campDiff.children; nb.classList.add('on'); hb.classList.remove('on'); hb.disabled = true;
+  const open = sideUnlocked(L) && (!taken || taken === L);
+  ui.campPlay.textContent = open ? 'Deploy' : 'Locked'; ui.campPlay.disabled = !open; ui.campPlay.className = 'btn btn-big btn-go';
+}
 ui.campBack.addEventListener('click', () => { ui.campaign.hidden = true; });
 ui.campaign.addEventListener('click', ev => { if (ev.target === ui.campaign) ui.campaign.hidden = true; });
 // Story scenes play first (once), then the level loads.
@@ -6988,6 +7071,246 @@ function themeBody(theme) {
   document.body.style.setProperty('--mote', MOTE[theme] || MOTE.meadow);
   document.body.style.setProperty('--theme-glow', THEMES[theme].chip + '66');
 }
+// ---------- drop 2: progression — sticker album, prestige camo, base decor, loadouts, side ops, events ----------
+
+// ----- the sticker album -----
+const ENEMY_LORE = {
+  normal: 'Signed up for the free helmet. Regrets it daily.', fast: 'Has never once used the brakes. Or a map.', armored: 'Six wheels, one cannon, zero manners.',
+  healer: 'Patches up anyone. Will not patch up arguments.', splitter: 'Bumpy ride, lots of passengers, terrible snacks.', mini: 'Small, angry and very fast at running away.',
+  golden: 'The Syndicate payroll. Blow it up, keep the change.', flyer: 'Buzzes like a wasp. Explodes like a firework.', ghost: 'You never see him coming. Unless you have a lantern.',
+  engineer: 'Carries a wrench, a charge and a grudge against your towers.', boss: 'Two legs, four missiles and the stomp of an angry elephant.',
+};
+const COMMANDER_LORE = [
+  'Ran the woodland front like a summer camp. A very loud one.', 'Thinks winter is a personality. Brings the cold everywhere.', 'Hides in the vines and complains about the humidity.',
+  'Teleports, vanishes, and still forgets where he parked.', 'Turned off every streetlight in the city. Just for the drama.', 'The Warden. Built a volcano base on purpose. Bold choice.',
+];
+function albumPages() {
+  return [
+    { id: 'enemies', name: 'Hostiles', items: Object.keys(ENEMIES).map(k => ({ key: 'e:' + k, name: ENEMIES[k].name, lore: ENEMY_LORE[k] || '', icon: () => { const img = new Image(); img.src = enemyIcon(k, 'meadow'); img.width = img.height = 46; return img; } })) },
+    { id: 'specs', name: 'Specialisations', items: TOWER_ORDER.flatMap(t => BRANCHES[t].map((b, i) => ({ key: `b:${t}:${i}`, name: b.name, lore: `${TOWERS[t].name}: ${b.blurb}`, icon: () => iconCanvas(46, g => { g.translate(23, 30); g.scale(.62, .62); drawTowerRaw(g, { type: t, level: 2, branch: i, x: 0, y: 0, angle: -.7, flash: 0, recoil: 0, beams: [], seed: 1, charge: .8, spin: .6, born: -9 }, 1); }) }))) },
+    { id: 'mods', name: 'Gear Mods', items: Object.keys(RELICS).map(k => ({ key: 'm:' + k, name: RELICS[k].name, lore: RELICS[k].desc, icon: () => relicIcon(k, 46) })) },
+    { id: 'commanders', name: 'Commanders', items: WORLDS.map((w, i) => ({ key: 'c:' + i, name: w.boss, lore: COMMANDER_LORE[i], icon: () => iconCanvas(46, g => { g.translate(23, 40); g.scale(.36, .36); const e = { type: 'boss', def: ENEMIES.boss, x: 0, y: 0, dirx: 1, diry: 0, rot: 0, hp: 1, maxHp: 1, slow: 0, flash: 0, seed: i * .3, revealed: true, big: 1, squash: 0, face: 1, abil: [], king: null, plan: true }; drawMech(g, e, 0, w.theme); }) })) },
+  ];
+}
+function albumHas(key) {
+  const A = profile.album;
+  if (key.startsWith('m:')) return !!profile.relics[key.slice(2)];
+  if (key.startsWith('c:')) return worldCleared(profile, +key.slice(2));
+  return !!A.got[key];
+}
+function albumAdd(key) {
+  if (!profile.album || profile.album.got[key]) return;
+  profile.album.got[key] = true; questDirty = true;
+  if (S && S.mode === 'playing') showToast('New sticker!', 'Check your Sticker Album at base.');
+}
+function tabAlbum(body) {
+  const pages = albumPages(), total = pages.reduce((a, p) => a + p.items.length, 0), got = pages.reduce((a, p) => a + p.items.filter(i => albumHas(i.key)).length, 0);
+  body.appendChild(h3('Sticker Album', `${got} of ${total} collected`));
+  const detail = el('p', 'note album-lore', 'Tap a sticker to read about it.'); body.appendChild(detail);
+  for (const pg of pages) {
+    const have = pg.items.filter(i => albumHas(i.key)).length, sec = el('div', 'sect');
+    const head = h3(pg.name, `${have}/${pg.items.length}`);
+    const done = have === pg.items.length, claimed = profile.album.claimed[pg.id];
+    if (done && !claimed) head.appendChild(btn('btn-gold btn-sm', `Claim ${svgGem(14)} 50 + decor`, () => {
+      profile.album.claimed[pg.id] = true; addGems(50); const d = DECOR_ITEMS.find(x => x.from === 'album:' + pg.id); if (d) profile.decor.owned[d.id] = true;
+      saveProfile(); Sfx.play('chest', true); celebrate({ title: `${pg.name} page complete!`, sub: d ? `+50 gems and the ${d.name} decoration for your base.` : '+50 gems', items: [] }); refreshHome();
+    }));
+    else if (claimed) head.appendChild(el('span', 'rar', 'Complete!')).style.background = '#6cc04a';
+    sec.appendChild(head);
+    const grid = el('div', 'stickers');
+    pg.items.forEach((it, i) => {
+      const has = albumHas(it.key), st = el('button', 'sticker' + (has ? '' : ' locked'));
+      st.style.setProperty('--rot', ((i * 37 % 9) - 4) + 'deg');
+      st.appendChild(it.icon()); st.appendChild(el('span', null, has ? it.name : '???'));
+      st.addEventListener('click', () => { Sfx.play('click', true); detail.textContent = has ? `${it.name}: ${it.lore}` : 'Not found yet. Keep playing to find this sticker.'; });
+      grid.appendChild(st);
+    });
+    sec.appendChild(grid); body.appendChild(sec);
+  }
+}
+
+// ----- prestige camo: only earned on Hard (the skins themselves live with SKINS in the data) -----
+function checkPrestige() {
+  let got = [];
+  for (const pr of PRESTIGE) if (!profile.skins.owned[pr.id] && pr.need(profile)) { profile.skins.owned[pr.id] = true; got.push(pr); }
+  if (got.length) { saveProfile(); for (const pr of got) celebrate({ title: 'Prestige camo earned!', sub: `${pr.name}: ${pr.how}.`, items: [{ kind: 'skin', id: pr.id }] }); }
+}
+
+// ----- base decorations you place on the hub -----
+const DECOR_ITEMS = [
+  { id: 'flowers', name: 'Flower Bed', from: 'start', how: 'Standard issue' },
+  { id: 'bench', name: 'Bench', from: 'start', how: 'Standard issue' },
+  { id: 'flagpole', name: 'Phoenix Flag', from: 'rank:2', how: 'Reach Corporal' },
+  { id: 'lanterns', name: 'Lantern Post', from: 'rank:4', how: 'Reach Sergeant' },
+  { id: 'statue', name: 'Hero Statue', from: 'rank:7', how: 'Reach Lieutenant' },
+  { id: 'fountain', name: 'Fountain', from: 'album:enemies', how: 'Complete the Hostiles album page' },
+  { id: 'tankmon', name: 'Tank Monument', from: 'album:specs', how: 'Complete the Specialisations page' },
+  { id: 'trophy', name: 'Gold Trophy', from: 'album:commanders', how: 'Complete the Commanders page' },
+  { id: 'crystal', name: 'Mod Crystal', from: 'album:mods', how: 'Complete the Gear Mods page' },
+  { id: 'windmill', name: 'Windmill', from: 'side:1-A', how: 'Side op: Scout Rescue' },
+  { id: 'scarecrow', name: 'Scarecrow', from: 'side:1-B', how: 'Side op: Bridge Demolition' },
+  { id: 'snowman', name: 'Snowman', from: 'side:2-A', how: 'Side op: Ice Station' },
+  { id: 'igloo', name: 'Igloo', from: 'side:2-B', how: 'Side op: Avalanche Pass' },
+  { id: 'palm', name: 'Palm Tree', from: 'side:3-A', how: 'Side op: Smugglers\' Cove' },
+  { id: 'tiki', name: 'Tiki Torch', from: 'side:3-B', how: 'Side op: Radio Tower' },
+  { id: 'cactus', name: 'Cactus Pot', from: 'side:4-A', how: 'Side op: Oasis Raid' },
+  { id: 'camel', name: 'Camel', from: 'side:4-B', how: 'Side op: Pipeline Sabotage' },
+  { id: 'neon', name: 'Neon Sign', from: 'side:5-A', how: 'Side op: Rooftop Run' },
+  { id: 'arcade', name: 'Arcade Cabinet', from: 'side:5-B', how: 'Side op: Subway Siege' },
+  { id: 'obsidian', name: 'Obsidian Spire', from: 'side:6-A', how: 'Side op: Magma Mine' },
+  { id: 'phoenixstatue', name: 'Phoenix Statue', from: 'side:6-B', how: 'Side op: Inferno Vent' },
+];
+function syncDecorUnlocks() {
+  const r = rankOf(profile.xp);
+  for (const d of DECOR_ITEMS) {
+    if (d.from === 'start') profile.decor.owned[d.id] = true;
+    else if (d.from.startsWith('rank:') && r >= +d.from.slice(5)) profile.decor.owned[d.id] = true;
+    else if (d.from.startsWith('side:') && profile.camp.cleared[d.from.slice(5).replace('-', '-S')]) profile.decor.owned[d.id] = true;
+  }
+}
+// cartoon decorations, drawn with the base at the origin (about 60 units tall at most)
+function drawDecorItem(g, id, t = 0) {
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.fillStyle = 'rgba(43,36,24,.2)'; ellipse(g, 3, 2, 18, 5); g.fill();
+  switch (id) {
+    case 'flowers': rr(g, -18, -8, 36, 10, 5); g.fillStyle = '#8a5a30'; g.fill(); ol(g, 2.2); for (let i = 0; i < 5; i++) { const x = -13 + i * 6.5, sw = Math.sin(t * 2 + i) * 1.5; g.strokeStyle = '#3f8a2a'; g.lineWidth = 2; g.beginPath(); g.moveTo(x, -6); g.lineTo(x + sw, -15); g.stroke(); circle(g, x + sw, -16, 3.2); g.fillStyle = ['#ff6fb5', '#ffd23f', '#ffffff', '#b9a2ff', '#ff7a5a'][i]; g.fill(); ol(g, 1.2); } break;
+    case 'bench': rr(g, -18, -12, 36, 5, 2); g.fillStyle = '#b07a40'; g.fill(); ol(g, 2); rr(g, -18, -20, 36, 5, 2); g.fillStyle = '#c98a4b'; g.fill(); ol(g, 2); for (const x of [-14, 12]) { rr(g, x, -8, 3, 8, 1); g.fillStyle = OUT; g.fill(); } break;
+    case 'flagpole': hubFlag(g, 0, 0, 56, '#5e8c3a', t); break;
+    case 'lanterns': drawLampPost(g, 0, 0, THEMES.meadow); glow(g, 0, -18, 14, '255,190,100', .3 + .1 * Math.sin(t * 6)); break;
+    case 'statue': rr(g, -14, -14, 28, 14, 3); g.fillStyle = '#c9c2ae'; g.fill(); ol(g, 2.2); g.save(); g.globalAlpha = 1; drawPerson(g, { uni: '#b8b0a0', vest: '#a8a090', accent: '#ffd23f', skin: '#c9c2ae', head: 'beret', hair: '#a8a090', gear: 'rifle' }, 0, -12, .55, 'salute', 0); g.restore(); break;
+    case 'fountain': ellipse(g, 0, -4, 22, 9); g.fillStyle = '#c9d0d6'; g.fill(); ol(g, 2.2); ellipse(g, 0, -6, 17, 6); g.fillStyle = '#5ab4e6'; g.fill(); rr(g, -3, -26, 6, 20, 2); g.fillStyle = '#c9d0d6'; g.fill(); ol(g, 1.8); for (let i = 0; i < 4; i++) { const k = (t * 1.5 + i / 4) % 1; circle(g, (i - 1.5) * 6 * k, -28 + k * 20 - Math.sin(k * Math.PI) * 10, 1.8); g.fillStyle = '#bfe9ff'; g.fill(); } break;
+    case 'tankmon': rr(g, -20, -10, 40, 10, 3); g.fillStyle = '#c9c2ae'; g.fill(); ol(g, 2); rr(g, -16, -24, 32, 13, 5); g.fillStyle = '#6f8a46'; g.fill(); ol(g, 2.2); circle(g, -2, -26, 7); g.fillStyle = '#5f7a3a'; g.fill(); ol(g, 2); g.save(); g.translate(-2, -26); g.rotate(-.3); tube(g, 0, 0, 22, 4, '#3a4048', 1.6); g.restore(); break;
+    case 'trophy': rr(g, -10, -8, 20, 8, 2); g.fillStyle = '#7a5228'; g.fill(); ol(g, 2); rr(g, -3, -16, 6, 9, 1); g.fillStyle = '#ffd23f'; g.fill(); ol(g, 1.6); g.beginPath(); g.moveTo(-11, -34); g.lineTo(11, -34); g.quadraticCurveTo(10, -16, 0, -16); g.quadraticCurveTo(-10, -16, -11, -34); g.closePath(); g.fillStyle = '#ffd23f'; g.fill(); ol(g, 2); glow(g, 0, -26, 18, '255,220,90', .3); break;
+    case 'crystal': poly(g, [[0, -38], [9, -18], [5, 0], [-5, 0], [-9, -18]]); g.fillStyle = vgrad(g, -38, 0, '#b98cff', .3); g.fill(); ol(g, 2.2); poly(g, [[0, -38], [4, -18], [0, -6]]); g.fillStyle = 'rgba(255,255,255,.4)'; g.fill(); glow(g, 0, -20, 22, '190,140,255', .3 + .15 * Math.sin(t * 3)); break;
+    case 'windmill': poly(g, [[-8, 0], [-5, -34], [5, -34], [8, 0]]); g.fillStyle = '#e8dcc0'; g.fill(); ol(g, 2.2); g.save(); g.translate(0, -34); g.rotate(t * 1.5); for (let i = 0; i < 4; i++) { g.rotate(Math.PI / 2); rr(g, -2, -22, 4, 20, 1.5); g.fillStyle = '#b07a40'; g.fill(); ol(g, 1.6); } g.restore(); circle(g, 0, -34, 3); g.fillStyle = OUT; g.fill(); break;
+    case 'scarecrow': g.strokeStyle = OUT; g.lineWidth = 4; g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -34); g.moveTo(-14, -24); g.lineTo(14, -24); g.stroke(); g.strokeStyle = '#8a5a30'; g.lineWidth = 2; g.stroke(); rr(g, -8, -28, 16, 14, 3); g.fillStyle = '#5a7ab0'; g.fill(); ol(g, 1.8); circle(g, 0, -36, 6.5); g.fillStyle = '#ecd59a'; g.fill(); ol(g, 1.8); poly(g, [[-9, -40], [9, -40], [0, -50]]); g.fillStyle = '#b07a40'; g.fill(); ol(g, 1.6); break;
+    case 'snowman': circle(g, 0, -10, 11); g.fillStyle = '#ffffff'; g.fill(); ol(g, 2.2); circle(g, 0, -27, 8); g.fillStyle = '#ffffff'; g.fill(); ol(g, 2.2); poly(g, [[0, -27], [9, -26], [0, -25]]); g.fillStyle = '#ff8a2a'; g.fill(); for (const x of [-2.5, 2.5]) { circle(g, x, -29.5, 1.1); g.fillStyle = OUT; g.fill(); } rr(g, -6, -38, 12, 5, 1); g.fillStyle = OUT; g.fill(); rr(g, -9, -34, 18, 2.4, 1); g.fill(); break;
+    case 'igloo': g.beginPath(); g.arc(0, 0, 20, Math.PI, 0); g.closePath(); g.fillStyle = '#eef6fb'; g.fill(); ol(g, 2.2); g.strokeStyle = 'rgba(120,160,190,.6)'; g.lineWidth = 1.4; for (const y of [-6, -12, -17]) { g.beginPath(); g.moveTo(-Math.sqrt(400 - y * y), y); g.lineTo(Math.sqrt(400 - y * y), y); g.stroke(); } g.beginPath(); g.arc(8, 0, 6, Math.PI, 0); g.closePath(); g.fillStyle = '#2a3a4a'; g.fill(); ol(g, 1.6); break;
+    case 'palm': drawPalm(g, 0, -10, 1.6, .4); break;
+    case 'tiki': g.strokeStyle = OUT; g.lineWidth = 6; g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -30); g.stroke(); g.strokeStyle = '#8a5a30'; g.lineWidth = 3.4; g.stroke(); rr(g, -5, -38, 10, 9, 2); g.fillStyle = '#b07a40'; g.fill(); ol(g, 1.6); const fl = 1 + .15 * Math.sin(t * 9); poly(g, [[-4, -38], [0, -38 - 10 * fl], [4, -38]]); g.fillStyle = '#ffb347'; g.fill(); glow(g, 0, -42, 16, '255,160,60', .4); break;
+    case 'cactus': rr(g, -10, -9, 20, 9, 3); g.fillStyle = '#c0703a'; g.fill(); ol(g, 2); drawCactus(g, 0, -12, 1.1); break;
+    case 'camel': ellipse(g, 0, -16, 16, 8); g.fillStyle = '#d9a866'; g.fill(); ol(g, 2.2); ellipse(g, -3, -24, 6, 5); g.fill(); ol(g, 2); for (const x of [-10, -4, 6, 11]) { g.strokeStyle = OUT; g.lineWidth = 3.4; g.beginPath(); g.moveTo(x, -10); g.lineTo(x, 0); g.stroke(); g.strokeStyle = '#d9a866'; g.lineWidth = 1.8; g.stroke(); } g.strokeStyle = OUT; g.lineWidth = 5; g.beginPath(); g.moveTo(13, -18); g.lineTo(18, -30); g.stroke(); g.strokeStyle = '#d9a866'; g.lineWidth = 3; g.stroke(); ellipse(g, 21, -31, 5, 3.5); g.fillStyle = '#d9a866'; g.fill(); ol(g, 1.8); break;
+    case 'neon': rr(g, -2, -14, 4, 14, 1); g.fillStyle = OUT; g.fill(); rr(g, -20, -36, 40, 22, 5); g.fillStyle = '#2a1a3a'; g.fill(); ol(g, 2.2); g.font = `bold 11px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; const on = Math.sin(t * 4) > -.8; g.fillStyle = on ? '#ff6fb5' : '#5a2a4a'; g.fillText('BASE', 0, -25); if (on) glow(g, 0, -25, 22, '255,110,180', .4); break;
+    case 'arcade': rr(g, -11, -40, 22, 40, 3); g.fillStyle = '#4a6fd0'; g.fill(); ol(g, 2.2); rr(g, -8, -36, 16, 13, 2); g.fillStyle = '#1a2a3a'; g.fill(); ol(g, 1.4); g.fillStyle = ['#7ed957', '#ffd23f', '#ff6fb5'][Math.floor(t * 3) % 3]; g.fillRect(-5, -33, 4, 4); g.fillRect(1, -29, 4, 4); circle(g, -4, -18, 2.4); g.fillStyle = '#e5534b'; g.fill(); circle(g, 4, -18, 2.4); g.fillStyle = '#ffd23f'; g.fill(); break;
+    case 'obsidian': poly(g, [[0, -44], [8, -10], [4, 0], [-4, 0], [-8, -10]]); g.fillStyle = vgrad(g, -44, 0, '#3a2a3a', .2); g.fill(); ol(g, 2.2); g.strokeStyle = '#ff8a2a'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(0, -36); g.lineTo(3, -22); g.lineTo(-1, -12); g.stroke(); glow(g, 0, -22, 16, '255,120,40', .3 + .2 * Math.sin(t * 3)); break;
+    case 'phoenixstatue': rr(g, -14, -12, 28, 12, 3); g.fillStyle = '#c9c2ae'; g.fill(); ol(g, 2.2); drawPhoenixEmblem(g, 0, -30, 2.6); glow(g, 0, -30, 26, '255,150,60', .3 + .15 * Math.sin(t * 2)); break;
+    default: circle(g, 0, -10, 8); g.fillStyle = '#ccc'; g.fill(); ol(g, 2);
+  }
+}
+const decorIcon = (id, size = 44) => iconCanvas(size, g => { g.translate(size / 2, size * .88); g.scale(size / 64, size / 64); drawDecorItem(g, id, 0); });
+
+// ----- loadouts: some modes make you pick your towers first -----
+function openLoadout(n) {
+  const pick = new Set();
+  const modal = el('div', 'modal'); const card = el('div', 'card'); card.style.maxWidth = '720px'; modal.appendChild(card);
+  card.appendChild(el('h1', null, 'Pick your loadout'));
+  card.appendChild(el('div', 'tag', `This mode lets you bring ${n} towers. Choose wisely, then deploy.`));
+  const grid = el('div', 'loadout'); card.appendChild(grid);
+  const go = btn('btn-go btn-big mt-4', `Deploy (0/${n})`);
+  const refresh = () => { go.innerHTML = `Deploy (${pick.size}/${n})`; go.disabled = pick.size === 0; for (const b of grid.children) b.classList.toggle('on', pick.has(b.dataset.t)); };
+  for (const t of TOWER_ORDER) {
+    if (!isUnlocked(t) || S.rules.banned === t) continue;
+    const b = el('button', 'ld-tile'); b.dataset.t = t; b.appendChild(towerIcon(t, 0, 52)); b.appendChild(el('span', null, TOWERS[t].name));
+    b.addEventListener('click', () => { if (pick.has(t)) pick.delete(t); else if (pick.size < n) pick.add(t); else { Sfx.play('error', true); return; } Sfx.play('click', true); refresh(); });
+    grid.appendChild(b);
+  }
+  go.addEventListener('click', () => { S.loadout = [...pick]; modal.remove(); ui.infoKey = ''; Sfx.play('start', true); showToast('Loadout locked in', `${S.loadout.length} towers ready.`); });
+  card.appendChild(go); refresh();
+  document.body.appendChild(modal);
+}
+
+// ----- side ops: one either/or choice per world -----
+const SIDE_DEFS = [
+  [{ k: 'A', title: 'Scout Rescue', line: 'E:Two of my scouts are pinned down in the woods. Stealth troops everywhere.', twist: 'ghosts' }, { k: 'B', title: 'Bridge Demolition', line: 'P:Hold the bridge while the engineers wire it. APCs incoming.', twist: 'shells' }],
+  [{ k: 'A', title: 'Ice Station', line: 'S:A weather station with Syndicate codes inside. Drones guard it.', twist: 'flyers' }, { k: 'B', title: 'Avalanche Pass', line: 'P:They\'re pouring through the pass. Fast and loud.', twist: 'swift' }],
+  [{ k: 'A', title: 'Smugglers\' Cove', line: 'S:Smugglers with deep pockets. Big payouts, big targets.', twist: 'bounty' }, { k: 'B', title: 'Radio Tower', line: 'E:If we hold the tower I can listen in on the Warden.', twist: 'menders' }],
+  [{ k: 'A', title: 'Oasis Raid', line: 'P:Their water supply. Short on money, long on enemies.', twist: 'thrift' }, { k: 'B', title: 'Pipeline Sabotage', line: 'S:Smoke from the burning pipeline. You\'ll be fighting blind.', twist: 'fog' }],
+  [{ k: 'A', title: 'Rooftop Run', line: 'P:Rooftops only. Room for a few towers, no more.', twist: 'limit' }, { k: 'B', title: 'Subway Siege', line: 'S:They\'re coming up from the subway non-stop.', twist: 'rush' }],
+  [{ k: 'A', title: 'Magma Mine', line: 'W:My mines are not a playground, Commander.', twist: 'glass' }, { k: 'B', title: 'Inferno Vent', line: 'E:The vent cools Inferno. Shut it and the cannon overheats!', twist: 'nosell' }],
+];
+const SIDE_OPS = [];
+WORLDS.forEach((wd, w) => SIDE_DEFS[w].forEach(d => {
+  const raw = d.line;
+  SIDE_OPS.push({ id: `${w + 1}-S${d.k}`, side: true, sideKey: d.k, idx: w * 10 + 4, w, i: 4, world: wd, map: wd.maps[(d.k === 'A' ? 1 : 2) % wd.maps.length], title: d.title, line: raw.slice(2), who: raw[0],
+    twist: d.twist, mini: null, boss: false, waves: Math.min(20, 11 + w * 2), hp: .78 + w * .045 });
+}));
+function sideUnlocked(L) { return !!profile.camp.cleared[LEVELS[L.w * 10 + 4].id]; }
+function sideTaken(w) { return SIDE_OPS.find(o => o.w === w && profile.camp.cleared[o.id]); }
+
+// ----- random map events: about one surprise per mission -----
+function maybeEvent() {
+  if (S.mode !== 'playing' || S.wave < 3 || S.rules.bossRush) return;
+  if ((S.lastEvent || -99) > S.wave - 6 || Math.random() > .17) return;
+  S.lastEvent = S.wave;
+  const kind = ['stampede', 'airdrop', 'flood'][Math.random() * 3 | 0];
+  S.evQueued = { kind, t: 3 + Math.random() * 6 };
+}
+function startEvent(kind) {
+  if (kind === 'stampede') {
+    const y = (2 + Math.random() * (ROWS - 4)) * T, dir = Math.random() < .5 ? 1 : -1;
+    S.herd = Array.from({ length: 6 }, (_, i) => ({ x: dir > 0 ? -40 - i * 34 : W + 40 + i * 34, y: y + (i % 2 ? 14 : -14) + (Math.random() - .5) * 10, dir, ph: Math.random() * 6 }));
+    addBanner('Stampede!', 'Wild goats charge across the road, bowling hostiles over.', '#fff3c4'); Sfx.play('stampede');
+  } else if (kind === 'airdrop') {
+    const tiles = rankTiles(S.map, 1.4).filter(t => canBuild(t.c, t.r)); if (!tiles.length) return;
+    const t = tiles[Math.random() * Math.min(10, tiles.length) | 0];
+    S.crate = { x: (t.c + .5) * T, y: (t.r + .5) * T, hp: 1, fall: 0 };
+    addBanner('Supply crate!', 'Keep hostiles away from it until the wave ends.', '#d7ffb0'); Sfx.play('whoosh');
+  } else {
+    const at = S.map.total * (.3 + Math.random() * .4);
+    S.flood = { from: at, to: at + T * 3, life: 25 };
+    addBanner('Flash flood!', 'A stretch of road is underwater: hostiles wade through slowly.', '#bfe9ff'); Sfx.play('splash');
+  }
+}
+function updateEvents(dt) {
+  if (S.evQueued && S.waveActive && (S.evQueued.t -= dt) <= 0) { startEvent(S.evQueued.kind); S.evQueued = null; }
+  if (S.herd) {
+    for (const h of S.herd) {
+      h.x += h.dir * 150 * dt; h.ph += dt * 12;
+      for (const e of S.enemies) if (e.alive && !e.def.fly && !e.def.boss && d2(e.x, e.y, h.x, h.y) < 26 * 26 && !(e.bowled > 0)) { e.bowled = 1.5; applyStun(e, 1.2); moveBack(e, T * .4); applyDamage(e, e.maxHp * .15, 'hero', null, true); burst(e.x, e.y, '#ffffff', 4, .6); }
+    }
+    for (const e of S.enemies) if (e.bowled > 0) e.bowled -= dt;
+    if (S.herd.every(h => h.x < -80 || h.x > W + 80)) S.herd = null;
+  }
+  if (S.crate) {
+    const c = S.crate; c.fall = Math.min(1, c.fall + dt / .8);
+    if (c.fall >= 1) for (const e of S.enemies) if (e.alive && !e.def.fly && d2(e.x, e.y, c.x, c.y) < (1.15 * T) ** 2) c.hp -= dt * .22;
+    if (c.hp <= 0) { addText(c.x, c.y - 30, 'They looted it!', '#ffb0a0', 16); burst(c.x, c.y, '#b07a40', 10, .8); S.crate = null; Sfx.play('error'); }
+  }
+  if (S.flood && (S.flood.life -= dt) <= 0) S.flood = null;
+}
+// called from waveComplete: a surviving crate pays out
+function eventWaveEnd() {
+  if (S.crate && S.crate.fall >= 1) {
+    const amt = Math.round(60 + S.wave * 6);
+    S.gold += amt; S.goldEarned += amt; callGain(20); addText(S.crate.x, S.crate.y - 34, `Supplies secured! +$${amt}`, '#8ee05a', 18); sparkle(S.crate.x, S.crate.y, 14); Sfx.play('cash');
+    S.crate = null;
+  }
+}
+function floodSlow(e) { return S.flood && e.detour == null && e.dist > S.flood.from && e.dist < S.flood.to && !e.def.fly ? .45 : 0; }
+function drawEvents(g) {
+  if (S.flood) {
+    const a = Math.min(1, S.flood.life / 2, (25 - S.flood.life) / 1.5);
+    g.save(); g.globalAlpha = .65 * a; g.lineCap = 'round'; g.beginPath();
+    for (let d = S.flood.from; d <= S.flood.to; d += 6) { const p = pointAt(S.map, d); if (d === S.flood.from) g.moveTo(p.x, p.y); else g.lineTo(p.x, p.y); }
+    g.strokeStyle = '#3a8fd0'; g.lineWidth = 38; g.stroke(); g.strokeStyle = 'rgba(190,235,255,.8)'; g.lineWidth = 3; g.setLineDash([8, 10]); g.lineDashOffset = -S.anim * 20; g.stroke(); g.setLineDash([]); g.restore();
+  }
+  if (S.crate) {
+    const c = S.crate, y = c.y - (1 - c.fall) * 200;
+    if (c.fall < 1) { g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(c.x - 8, y - 10); g.lineTo(c.x - 14, y - 34); g.moveTo(c.x + 8, y - 10); g.lineTo(c.x + 14, y - 34); g.stroke(); g.beginPath(); g.ellipse(c.x, y - 34, 20, 11, 0, Math.PI, 0); g.closePath(); g.fillStyle = '#ffffff'; g.fill(); ol(g, 2); }
+    crate(g, c.x, y + 6, 22, 16, '#7a8a46');
+    if (c.fall >= 1) { const bw = 30; rr(g, c.x - bw / 2 - 1, c.y - 22, bw + 2, 6, 3); g.fillStyle = OUT; g.fill(); rr(g, c.x - bw / 2, c.y - 21, Math.max(3, bw * c.hp), 4, 2); g.fillStyle = '#ffd23f'; g.fill(); circle(g, c.x, c.y - 2, 1.15 * T); g.setLineDash([5, 6]); g.strokeStyle = 'rgba(255,240,150,.6)'; g.lineWidth = 2; g.stroke(); g.setLineDash([]); }
+  }
+  for (const h of S.herd || []) drawGoat(g, h);
+}
+function drawGoat(g, h) {
+  g.save(); g.translate(h.x, h.y - Math.abs(Math.sin(h.ph)) * 4); g.scale(h.dir, 1);
+  g.fillStyle = 'rgba(0,0,0,.2)'; ellipse(g, 0, 10 + Math.abs(Math.sin(h.ph)) * 4, 12, 3); g.fill();
+  for (const x of [-7, -3, 4, 8]) { g.strokeStyle = OUT; g.lineWidth = 3; g.beginPath(); g.moveTo(x, 2); g.lineTo(x + Math.sin(h.ph + x) * 2, 9); g.stroke(); }
+  ellipse(g, 0, -1, 12, 7); g.fillStyle = '#f4efe2'; g.fill(); ol(g, 2);
+  ellipse(g, 11, -7, 5.5, 4.5); g.fillStyle = '#f4efe2'; g.fill(); ol(g, 1.8);
+  g.strokeStyle = '#8a7a5a'; g.lineWidth = 2; g.beginPath(); g.moveTo(10, -10); g.quadraticCurveTo(7, -16, 4, -13); g.stroke();
+  circle(g, 13, -8, 1); g.fillStyle = OUT; g.fill(); g.restore();
+}
 // ---------- home: the base hub. A cartoon camp you click around; the view drifts a little with the mouse. ----------
 const HUB_W = 1000, HUB_H = 640, HUB_M = 28;
 const HUB = [
@@ -6999,6 +7322,7 @@ const HUB = [
   { id: 'towers', name: 'Workshop', x: 840, y: 440, w: 160, h: 130 },
   { id: 'shop', name: 'Armory', x: 320, y: 600, w: 160, h: 110 },
   { id: 'relics', name: 'Gear Lab', x: 685, y: 600, w: 150, h: 120 },
+  { id: 'album', name: 'Sticker Shack', x: 95, y: 615, w: 120, h: 100 },
 ];
 const HUB_DOOR = { x: 500, y: 410 };
 const hub = { mx: 0, my: 0, ox: 0, oy: 0, s: 1, zx: 0, zy: 0, w: 0, h: 0, dpr: 1, stat: null, hover: null, t: 0, hots: {}, birds: [], birdT: 3 };
@@ -7117,6 +7441,13 @@ function drawHubBuilding(g, id, t) {
       for (let i = 0; i < 9; i++) bag(g, -88 + i * 22, 6, 1.6, i % 2 ? '#d6c08a' : '#cbb27a');
       break;
     }
+    case 'album': {
+      hubBox(g, 0, 96, 50, 16, '#fff6dc', '#ff6fb5');
+      rr(g, -40, -44, 80, 32, 4); g.fillStyle = '#b07a40'; g.fill(); ol(g, 2.5);
+      ['#ff6fb5', '#7fd3f5', '#ffd23f', '#7ed957', '#b98cff', '#ff8a2a'].forEach((c, i) => { g.save(); g.translate(-30 + i * 12, -28 + (i % 2) * 6); g.rotate((i % 3 - 1) * .2); rr(g, -5, -5, 10, 10, 2.5); g.fillStyle = c; g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.stroke(); g.restore(); });
+      rr(g, -46, -62, 92, 14, 6); g.fillStyle = '#ff6fb5'; g.fill(); ol(g, 2.2); for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#fff' : '#ff6fb5'; g.fillRect(-44 + i * 15, -50, 15, 5); }
+      break;
+    }
     case 'records': {
       rr(g, -52, -34, 104, 34, 6); g.fillStyle = '#d8d2c4'; g.fill(); ol(g, 3.5);
       rr(g, -40, -54, 80, 22, 6); g.fillStyle = '#ece6d8'; g.fill(); ol(g, 3.5);
@@ -7220,12 +7551,15 @@ function drawHub(dt) {
   g.save(); g.translate(zx + hub.ox, zy + hub.oy); g.scale(s, s);
   const items = HUB.map(b => ({ y: b.y, b }));
   for (const [id, ph, spec, per] of HUB_WALK) { const p = walkerPos(id, ph, per); items.push({ y: p.y, p, spec }); }
+  for (const d of profile.decor.placed) items.push({ y: d.y, d });
+  if (hub.placing && hub.cursor) items.push({ y: hub.cursor.y, d: { id: hub.placing, x: hub.cursor.x, y: hub.cursor.y } });
   items.sort((a, b) => a.y - b.y);
   for (const it of items) {
     if (it.b) {
       const b = it.b, on = hub.hover === b.id, bob = on && !REDUCED ? Math.abs(Math.sin(hub.t * 6)) * -5 : 0, sc = on ? 1.05 : 1;
-      g.save(); g.translate(b.x, b.y + bob); g.scale(sc, sc); drawHubBuilding(g, b.id, hub.t); g.restore();
-    } else drawPerson(g, it.spec, it.p.x, it.p.y, .42, 'stand', hub.t * 3 + it.p.x);
+      g.save(); g.translate(b.x, b.y + bob); g.scale(sc, sc); drawHubBuilding(g, b.id, hub.t); drawTierExtras(g, b, hubTier(b.id), hub.t); g.restore();
+    } else if (it.d) { g.save(); g.translate(it.d.x, it.d.y); g.scale(1.5, 1.5); drawDecorItem(g, it.d.id, hub.t); g.restore(); }
+    else drawPerson(g, it.spec, it.p.x, it.p.y, .42, 'stand', hub.t * 3 + it.p.x);
   }
   g.restore();
   // birds and drifting cloud shadows ride a faster parallax layer
@@ -7258,6 +7592,7 @@ function renderHubHots() {
     if (dot) { if (n) dot.textContent = n > 9 ? '9+' : n; else dot.remove(); }
   }
   // quick buttons in the menu for the busiest buildings
+  hub.tiers = null;
   ui.menuGrid.innerHTML = '';
   for (const id of ['quests', 'chests', 'heroes', 'shop']) {
     const b = HUB.find(x => x.id === id), t = el('button', 'menu-tile'), n = tabDots(id);
@@ -7282,6 +7617,66 @@ ui.modesBtn.addEventListener('click', () => { Sfx.unlock(); Sfx.play('click', tr
 ui.modesBack.addEventListener('click', () => { ui.modesModal.hidden = true; });
 ui.modesModal.addEventListener('click', ev => { if (ev.target === ui.modesModal) ui.modesModal.hidden = true; });
 window.addEventListener('resize', () => { if (view === 'home' && !ui.home.hidden) hubLayout(); });
+
+// ----- the base grows: buildings gain flags, lights and gold trim as you progress -----
+function hubTier(id) {
+  if (!hub.tiers) {
+    const p = profile, perk = Object.values(p.perks).reduce((a, b) => a + b, 0), cnt = o => Object.keys(o || {}).length;
+    const v = { hq: perk / 10, records: cnt(p.titles.owned) / 4, quests: p.stats.quests / 15, chests: p.stats.levels / 15, heroes: cnt(p.outfits.owned) / 3,
+      towers: TOWER_ORDER.filter(isUnlocked).length / 6, shop: cnt(p.skins.owned) / 3, relics: cnt(p.relics) / 4, album: cnt(p.album.got) / 15 };
+    hub.tiers = {}; for (const k in v) hub.tiers[k] = Math.min(3, Math.floor(v[k]));
+  }
+  return hub.tiers[id] || 0;
+}
+function drawTierExtras(g, b, tier, t) {
+  if (!tier) return;
+  const top = -b.h * .78;
+  if (tier >= 1) { // a pennant on the roof
+    const x = b.w * .32, wv = Math.sin(t * 5 + b.x) * 2;
+    g.strokeStyle = OUT; g.lineWidth = 3; g.beginPath(); g.moveTo(x, top + 20); g.lineTo(x, top - 6); g.stroke();
+    poly(g, [[x, top - 6], [x + 16, top - 2 + wv], [x, top + 3]]); g.fillStyle = ['#ffd23f', '#7ed957', '#ff6fb5'][b.x % 3 | 0]; g.fill(); ol(g, 1.6);
+  }
+  if (tier >= 2) { // string lights
+    for (let i = 0; i < 7; i++) { const x = -b.w * .4 + i * b.w * .8 / 6, y = top + 26 + Math.sin(i / 6 * Math.PI) * 8; circle(g, x, y, 2.6); g.fillStyle = ['#ffd23f', '#ff6fb5', '#7fd3f5'][i % 3]; g.fill(); ol(g, 1); if (Math.sin(t * 3 + i) > .3) glow(g, x, y, 8, '255,230,140', .4); }
+  }
+  if (tier >= 3) { // a gold star sign
+    poly(g, Array.from({ length: 10 }, (_, k) => { const a = -Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 5 : 11; return [-b.w * .32 + Math.cos(a) * r, top + 6 + Math.sin(a) * r]; }));
+    g.fillStyle = '#ffd23f'; g.fill(); ol(g, 2); glow(g, -b.w * .32, top + 6, 18, '255,220,90', .25 + .1 * Math.sin(t * 2));
+  }
+}
+// ----- decorate mode: place earned decorations anywhere on the base -----
+function hubWorld(ev) { return { x: (ev.clientX - hub.zx - hub.ox) / hub.s, y: (ev.clientY - hub.zy - hub.oy) / hub.s }; }
+function toggleDecorate(on) {
+  hub.decorating = on; hub.placing = null; ui.home.classList.toggle('decorating', on);
+  ui.decorBar.hidden = !on;
+  if (on) renderDecorBar(); else saveProfile();
+}
+function renderDecorBar() {
+  const bar = ui.decorList; bar.innerHTML = '';
+  const owned = DECOR_ITEMS.filter(d => profile.decor.owned[d.id]);
+  for (const d of DECOR_ITEMS) {
+    const has = !!profile.decor.owned[d.id], used = profile.decor.placed.filter(p => p.id === d.id).length;
+    const b = el('button', 'dec' + (hub.placing === d.id ? ' on' : '') + (has ? '' : ' locked'));
+    b.appendChild(decorIcon(d.id, 40)); b.appendChild(el('span', null, has ? `${d.name}${used ? ` ×${used}` : ''}` : '🔒'));
+    b.title = has ? `${d.name}: click, then click the base to place it` : `Locked: ${d.how}`;
+    b.addEventListener('click', () => { if (!has) { toastHome(`${d.name} is locked: ${d.how}.`); Sfx.play('error', true); return; } hub.placing = hub.placing === d.id ? null : d.id; Sfx.play('click', true); renderDecorBar(); });
+    bar.appendChild(b);
+  }
+  ui.decorHint.textContent = owned.length ? (hub.placing ? 'Click the base to place it. Click a placed decoration to pick it back up.' : 'Pick a decoration below, or click one on the base to remove it.') : 'Earn decorations from ranks, side ops and the sticker album.';
+}
+ui.hubCv.addEventListener('pointermove', ev => { if (hub.decorating) hub.cursor = hubWorld(ev); });
+ui.hubCv.addEventListener('click', ev => {
+  if (!hub.decorating) return;
+  const p = hubWorld(ev), placed = profile.decor.placed;
+  const hit = placed.findIndex(d => d2(d.x, d.y - 16, p.x, p.y) < 28 * 28);
+  if (hit >= 0 && !hub.placing) { placed.splice(hit, 1); Sfx.play('sell', true); renderDecorBar(); return; }
+  if (!hub.placing) return;
+  if (p.x < -60 || p.x > HUB_W + 60 || p.y < 20 || p.y > HUB_H + 40) { Sfx.play('error', true); return; }
+  if (placed.length >= 40) { toastHome('That is plenty of decorations! Remove some first.'); return; }
+  placed.push({ id: hub.placing, x: Math.round(p.x), y: Math.round(p.y) }); Sfx.play('build', true); renderDecorBar();
+});
+ui.decorBtn.addEventListener('click', () => { Sfx.unlock(); Sfx.play('click', true); toggleDecorate(!hub.decorating); });
+ui.decorDone.addEventListener('click', () => { Sfx.play('click', true); toggleDecorate(false); });
 
 function setView(v) {
   view = v;
