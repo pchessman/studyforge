@@ -8714,7 +8714,7 @@ function openPicker(mode) {
     const best = profile.best[`${mode}:${def.id}`] | 0;
     const info = el('div', 'flex flex-col gap-1 min-w-0');
     const th = THEMES[def.theme];
-    info.innerHTML = `<span class="flex flex-wrap gap-1"><span class="world" style="background:${th.chip}">${th.name}</span><span class="diff ${def.diff}">${def.diff}</span></span><span class="mn">${def.name}</span>
+    info.innerHTML = `<span class="flex flex-wrap gap-1"><span class="world" style="background:${th.chip}">${th.name}</span><span class="diff ${def.diff}">${def.diff}</span></span><span class="mn">${esc(def.name)}</span>
       <span class="ms">${def.gold + 30 * profile.perks.chest + (mode === 'bossrush' ? 300 : 0)} gold · ${def.lives + 3 * profile.perks.walls + (profile.hero === 'anvil' ? 5 : 0)} HQ HP · ${def.stars}× coins</span>
       <span class="ms"><b>${best ? 'Best: wave ' + best : 'Not played yet'}</b></span>`;
     b.appendChild(info);
@@ -9855,7 +9855,7 @@ function openVsSetup(mapIdx) {
   vsUi.map = mapIdx; const def = MAPS[mapIdx];
   vsSetupEl.innerHTML = '';
   const card = el('div', 'card'); card.style.maxWidth = '760px';
-  card.innerHTML = `<div class="flex items-start justify-between gap-3"><div><h1>Local Versus</h1><div class="tag">${def.name} · one keyboard, two players. The defender gets ${VS_PREP} seconds to build, then the attacks begin. Last as long as you can!</div></div></div>`;
+  card.innerHTML = `<div class="flex items-start justify-between gap-3"><div><h1>Local Versus</h1><div class="tag">${esc(def.name)} · one keyboard, two players. The defender gets ${VS_PREP} seconds to build, then the attacks begin. Last as long as you can!</div></div></div>`;
   const back = btn('btn-wood btn-sm', 'Back', () => { vsSetupEl.hidden = true; }); card.firstChild.appendChild(back);
   card.appendChild(el('div', 'mm-l mt-3', 'Attacker: pick your side'));
   const fac = el('div', 'vs-fac');
@@ -10023,12 +10023,12 @@ function tabLeaders(body) {
   for (const def of MAPS) {
     const rows = ['classic', 'endless', 'bossrush', 'weekly'].map(m => [m, lb[`${m}:${def.id}`] || []]).filter(r => r[1].length), vsr = lb['versus:' + def.id] || [];
     const tr = el('tr');
-    tr.innerHTML = `<td>${def.name}${def.custom ? ' ✏️' : ''}</td><td class="top">${top('classic:' + def.id, e => 'wave ' + e.w)}</td><td>${fast(def.id)}</td><td>${top('endless:' + def.id, e => 'wave ' + e.w)}</td><td>${top('bossrush:' + def.id, e => 'wave ' + e.w)}</td><td>${top('versus:' + def.id, e => fmtClock(e.t))}</td>`;
+    tr.innerHTML = `<td>${esc(def.name)}${def.custom ? ' ✏️' : ''}</td><td class="top">${top('classic:' + def.id, e => 'wave ' + e.w)}</td><td>${fast(def.id)}</td><td>${top('endless:' + def.id, e => 'wave ' + e.w)}</td><td>${top('bossrush:' + def.id, e => 'wave ' + e.w)}</td><td>${top('versus:' + def.id, e => fmtClock(e.t))}</td>`;
     if (rows.length || vsr.length) {
       const d = el('details'), sum = el('summary', null, 'Top runs'); d.appendChild(sum);
       const runs = el('div', 'runs');
-      runs.innerHTML = rows.map(([m, L]) => `<b>${MODES[m].name}:</b> ${L.map((e, i) => `${i + 1}. wave ${e.w}${e.win ? ' (won)' : ''} · ${fmtClock(e.t)} · ${e.d}`).join(' &nbsp; ')}`).join('<br>')
-        + (vsr.length ? `${rows.length ? '<br>' : ''}<b>Versus:</b> ${vsr.map((e, i) => `${i + 1}. ${fmtClock(e.t)} vs ${e.f === 'zombie' ? 'zombies' : 'Syndicate'} · ${e.d}`).join(' &nbsp; ')}` : '')
+      runs.innerHTML = rows.map(([m, L]) => `<b>${MODES[m].name}:</b> ${L.map((e, i) => `${i + 1}. wave ${e.w}${e.win ? ' (won)' : ''} · ${fmtClock(e.t)} · ${esc(e.d)}`).join(' &nbsp; ')}`).join('<br>')
+        + (vsr.length ? `${rows.length ? '<br>' : ''}<b>Versus:</b> ${vsr.map((e, i) => `${i + 1}. ${fmtClock(e.t)} vs ${e.f === 'zombie' ? 'zombies' : 'Syndicate'} · ${esc(e.d)}`).join(' &nbsp; ')}` : '')
         + (V10().ghost['classic:' + def.id] || V10().ghost['endless:' + def.id] ? '<br>👻 A ghost of your best build replays on this map.' : '');
       d.appendChild(runs); tr.firstChild.appendChild(d);
     }
@@ -10296,6 +10296,125 @@ const drawSeasonV10 = drawSeason;
 drawSeason = function (g) { drawSeasonV10(g); try { drawLiveGate(g); } catch (e) { console.error(e); } };
 const updateAmbientV10 = updateAmbient;
 updateAmbient = function (dt) { updateAmbientV10(dt); if (S) S.gateDt = dt; };
+// ---------- safety: uploaded audio and player-typed text are treated as untrusted data ----------
+// An uploaded track is only ever handed to the browser's sandboxed audio decoder. It is never put in the page,
+// never given a URL, never run. On top of that, the file must look like real audio, decode within limits and
+// play through a limiter before the DJ uses it.
+const DJ_MAX_BYTES = 40e6, DJ_MAX_SECONDS = 600, DJ_MAX_DECODED = 220e6, DJ_DECODE_MS = 20000;
+// Check the file's first bytes rather than trusting its name or type: a script renamed to .mp3 is refused here.
+function sniffAudio(bytes) {
+  const b = new Uint8Array(bytes, 0, Math.min(16, bytes.byteLength)), at = (o, t) => [...t].every((ch, i) => b[o + i] === ch.charCodeAt(0));
+  if (at(0, 'ID3')) return 'mp3';
+  if (b[0] === 0xFF && (b[1] & 0xE0) === 0xE0) return (b[1] & 0x06) === 0 ? 'aac' : 'mp3';
+  if (at(4, 'ftyp')) return 'mp4';
+  if (at(0, 'OggS')) return 'ogg';
+  if (at(0, 'RIFF') && at(8, 'WAVE')) return 'wav';
+  if (at(0, 'fLaC')) return 'flac';
+  if (b[0] === 0x1A && b[1] === 0x45 && b[2] === 0xDF && b[3] === 0xA3) return 'webm';
+  return null;
+}
+// Names are shown as plain text only; strip control and direction-override characters and keep them short.
+function safeText(s, max = 60) {
+  return String(s ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+const esc = s => String(s ?? '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' })[ch]);
+class TrackError extends Error {}
+async function vetTrack(bytes) {
+  if (!(bytes instanceof ArrayBuffer) || bytes.byteLength < 64) throw new TrackError("That file is empty or too small to be a song.");
+  if (bytes.byteLength > DJ_MAX_BYTES) throw new TrackError('That file is over 40 MB. Try a shorter or compressed track.');
+  if (!sniffAudio(bytes)) throw new TrackError("That doesn't look like an audio file. Use an MP3, M4A, OGG, WAV, FLAC or WebM.");
+  Sfx.unlock(); if (!Sfx.ctx) throw new TrackError('Audio is not available in this browser.');
+  let timer;
+  const buf = await Promise.race([
+    Sfx.ctx.decodeAudioData(bytes.slice(0)),
+    new Promise((_, rej) => { timer = setTimeout(() => rej(new TrackError('That file took too long to read.')), DJ_DECODE_MS); }),
+  ]).catch(e => { throw e instanceof TrackError ? e : new TrackError("Couldn't read that file. Try an MP3, M4A, OGG or WAV."); }).finally(() => clearTimeout(timer));
+  if (!buf || !(buf.duration > .5)) throw new TrackError('That track is too short.');
+  if (buf.duration > DJ_MAX_SECONDS) throw new TrackError('Tracks can be up to 10 minutes long.');
+  if (buf.numberOfChannels > 2 || buf.length * buf.numberOfChannels * 4 > DJ_MAX_DECODED) throw new TrackError('That track is too large to play smoothly.');
+  tameTrack(buf);
+  return buf;
+}
+// Clean out broken samples and bring the peak down to a safe level, so a crafted file can't blast your ears.
+function tameTrack(buf) {
+  let peak = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) { const v = d[i]; if (!Number.isFinite(v)) d[i] = 0; else if (v > peak) peak = v; else if (-v > peak) peak = -v; } }
+  if (peak > .89) { const k = .89 / peak; for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] *= k; } }
+}
+function djStore(fn) {
+  return DJ.db().then(db => new Promise((res, rej) => { const tx = db.transaction('t', 'readwrite'), st = tx.objectStore('t'); let out; const r = fn(st); if (r) r.onsuccess = () => { out = r.result; }; tx.oncomplete = () => res(out); tx.onerror = () => rej(tx.error); }));
+}
+// Only the vetted bytes and a cleaned name are stored, never the original File object.
+DJ.save = async function (bytes, name) {
+  await djStore(st => st.put({ v: 2, bytes, name }, 'track'));
+  profile.settings.djName = name; saveProfile(); this.loading = null; this.stop();
+};
+DJ.load = async function () {
+  if (this.buffer || !profile.settings.djName || !Sfx.ctx) return this.buffer;
+  if (!this.loading) this.loading = (async () => {
+    try {
+      const rec = await djStore(st => st.get('track'));
+      const bytes = rec instanceof Blob ? await rec.arrayBuffer() : rec && rec.bytes instanceof ArrayBuffer ? rec.bytes : null;
+      this.buffer = await vetTrack(bytes); // stored tracks are checked again every time they load
+    } catch { this.buffer = null; await DJ.remove().catch(() => {}); }
+    return this.buffer;
+  })();
+  return this.loading;
+};
+// The DJ track plays through its own limiter, so it can never go above a safe level.
+DJ.update = function () {
+  const want = view === 'play' && S && S.mode === 'playing' && S.towers.some(t => t.type === 'dj') && Music.on && !!profile.settings.djName;
+  this.want = want;
+  if (want && !this.src && Sfx.ctx && Sfx.ctx.state === 'running') {
+    if (!this.buffer) { this.load(); return; }
+    const c = Sfx.ctx;
+    if (!this.lim) { const L = this.lim = c.createDynamicsCompressor(); L.threshold.value = -8; L.knee.value = 0; L.ratio.value = 20; L.attack.value = .002; L.release.value = .2; L.connect(c.destination); }
+    this.gain = c.createGain(); this.gain.gain.value = 0; this.gain.gain.setTargetAtTime(this.level(), c.currentTime, .4); this.gain.connect(this.lim);
+    this.src = c.createBufferSource(); this.src.buffer = this.buffer; this.src.loop = true; this.src.connect(this.gain); this.src.start();
+  } else if (!want && this.src) this.stop();
+  else if (this.src && this.gain) this.gain.gain.setTargetAtTime(this.level(), Sfx.ctx.currentTime, .3);
+};
+DJ.level = function () { return clamp(.5 * profile.settings.music * Music.duckV, 0, .5); };
+djUploadControls = function (after) {
+  const wrap = el('div', 'flex gap-2');
+  const say = t => ui.settings.hidden ? showToast('DJ Booth', t) : toastSettings(t);
+  const inp = el('input'); inp.type = 'file'; inp.accept = 'audio/*,.mp3,.m4a,.ogg,.wav,.flac,.webm'; inp.hidden = true;
+  inp.addEventListener('change', async () => {
+    const f = inp.files && inp.files[0]; inp.value = ''; if (!f) return;
+    Sfx.unlock();
+    if (f.size > DJ_MAX_BYTES) { say('That file is over 40 MB. Try a shorter or compressed track.'); return; }
+    let buf;
+    try { buf = await vetTrack(await f.arrayBuffer()); } catch (e) { say(e instanceof TrackError ? e.message : "Couldn't read that file."); return; }
+    const name = safeText(f.name.replace(/\.[a-z0-9]{1,5}$/i, ''), 60) || 'Custom track';
+    try { const bytes = await f.arrayBuffer(); await DJ.save(bytes, name); DJ.buffer = buf; say(`DJ track ready: ${name}`); }
+    catch { say("Couldn't save the track here (browser storage may be blocked)."); }
+    if (after) after();
+  });
+  wrap.appendChild(inp);
+  wrap.appendChild(btn('btn-gold btn-sm', profile.settings.djName ? 'Change' : 'Upload', () => inp.click()));
+  if (profile.settings.djName) wrap.appendChild(btn('btn-wood btn-sm', 'Remove', async () => { await DJ.remove(); if (after) after(); }));
+  return wrap;
+};
+profile.settings.djName = safeText(profile.settings.djName, 60);
+
+// ===== typed map names and other saved text =====
+// Custom maps come back from storage, so every field is checked and names are plain text.
+function cleanCustom(d) {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.pts) || d.pts.length < 2 || d.pts.length > 200) return null;
+  const pts = d.pts.filter(p => Array.isArray(p) && p.length === 2 && p.every(Number.isInteger)).map(([c, r]) => [clamp(c, -1, COLS), clamp(r, 0, ROWS - 1)]);
+  if (pts.length !== d.pts.length) return null;
+  const tiles = Array.isArray(d.tiles) ? d.tiles.filter(p => Array.isArray(p) && p.length === 2 && p.every(Number.isInteger)).slice(0, 260) : [];
+  return {
+    id: 'custom-' + String(d.id || '').replace(/[^a-z0-9-]/gi, '').replace(/^custom-/, '').slice(0, 24), name: safeText(d.name, 24) || 'My Map',
+    theme: THEMES[d.theme] ? d.theme : 'meadow', diff: ['Easy', 'Medium', 'Hard'].includes(d.diff) ? d.diff : 'Medium',
+    seed: clamp(d.seed | 0, 0, 100000), waves: [10, 20, 30].includes(d.waves) ? d.waves : 20, pts, tiles,
+    gold: clamp(d.gold | 0, 100, 400), lives: clamp(d.lives | 0, 5, 40), hpMul: clamp(+d.hpMul || 1, .5, 2), stars: clamp(+d.stars || 1, .5, 2), custom: true,
+  };
+}
+profile.custom = (profile.custom || []).map(cleanCustom).filter(Boolean);
+const mmDefV10 = mmDef;
+mmDef = function () { return cleanCustom(mmDefV10()) || mmDefV10(); };
+loadCustomMaps();
 
 function setView(v) {
   view = v;
