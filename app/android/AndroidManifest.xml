@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Operation Phoenix for Android phones, tablets and Android TV. Fully offline: no INTERNET permission. -->
+<!-- Operation Phoenix for Android phones, tablets and Android TV. The game itself is bundled offline; internet is
+     used only when you play online with a friend (a direct peer-to-peer connection). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.operationphoenix.game"
     android:versionCode="1"
     android:versionName="1.0">
 
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="23" />
+
+    <!-- online co-op and versus -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Runs on TVs (no touchscreen), with or without a controller -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

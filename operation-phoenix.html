@@ -12556,6 +12556,757 @@ drawCineCard = function (g) {
     g.restore();
   }
 };
+// ---------- online play: two computers, one battle ----------
+// One computer HOSTS: it runs the real battle exactly like local co-op or versus, with the second player's moves
+// arriving over the network. The other computer is the GUEST: it runs a "shadow" copy for smooth visuals (towers
+// aim and fire, enemies walk) while the host streams the truth a few times a second -- where every enemy is and how
+// hurt it is, the towers, both wallets, lives and timers. Guest button presses go to the host with an
+// acknowledgement, so a dropped message is simply sent again.
+//
+// Two ways to connect:
+//  - claude.ai rooms: when this page runs as a claude.ai artifact, a 5-letter room code is all you need.
+//  - direct (WebRTC): anywhere else, the players swap one invite code and one reply code once.
+// Everything that arrives is treated as untrusted data: types are checked, numbers clamped, text shown as text only.
+const NET_PROTO = 2;
+const NET = {
+  on: false, role: null, me: 0, link: null, kind: null, run: 0, applying: false, fx: [], status: '',
+  seq: 0, pend: [], lastQ: 0, lastIn: 0, rtt: 0, pingT: 0, sT: 0, gT: 0, wT: 0, wSig: '', curSig: '', curT: 0,
+  vsRole: 'defender', hostRole: 'defender', endData: null, startResend: null, lobT: 0, snapSeq: 0, parts: null, lost: false,
+};
+const netGuest = () => NET.on && NET.role === 'guest' && S && S.net && S.net.run === NET.run;
+const netHost = () => NET.on && NET.role === 'host' && S && S.net && S.net.run === NET.run;
+const ENEMY_KEYS = Object.keys(ENEMIES);
+const clampN = (v, a, b, d = a) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : d);
+const intN = (v, a, b, d = a) => Math.round(clampN(v, a, b, d));
+
+// ===== transports =====
+function netSend(o) { if (NET.link) try { NET.link.send(o); } catch { /* link closing */ } }
+// claude.ai room: everyone in a named room hears everything; we pair with the first partner and ignore anyone else
+async function netRoom() {
+  try { return typeof window.claude === 'object' && window.claude && typeof window.claude.use === 'function' ? await window.claude.use('room') : null; } catch { return null; }
+}
+async function linkRoom(code, asHost) {
+  const lobby = await netRoom(); if (!lobby) throw new Error('Rooms are only available on the claude.ai link.');
+  const r = await lobby.join('phx-' + code.toLowerCase());
+  let partner = null;
+  const link = {
+    kind: 'room',
+    send(o) { const s = JSON.stringify(o); if (s.length <= 4000) r.emit('ph', o).catch(() => {}); },
+    close() { r.leave().catch(() => {}); },
+  };
+  r.on('ph', m => {
+    if (!m || m.sameTab || m.isMe || m.kind !== 'viewer') return;
+    const d = m.data; if (!d || typeof d !== 'object') return;
+    if (!partner) { if ((asHost && d.t === 'hello') || (!asHost && d.t === 'welcome')) partner = m.peer; else return; }
+    if (m.peer !== partner) return;
+    netReceive(d);
+  }, () => netLost('The room connection ended.'));
+  return link;
+}
+// direct WebRTC: one invite code from the host, one reply code from the guest
+const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }];
+const RTC = { pc: null, dc: null };
+function rtcWire(dc) {
+  RTC.dc = dc;
+  dc.onopen = () => { NET.link = { kind: 'rtc', send(o) { if (dc.readyState === 'open') dc.send(JSON.stringify(o)); }, close() { try { dc.close(); RTC.pc && RTC.pc.close(); } catch { /* closed */ } } }; if (NET.role === 'guest') netHello(); };
+  dc.onmessage = ev => { if (typeof ev.data !== 'string' || ev.data.length > 65536) return; let d; try { d = JSON.parse(ev.data); } catch { return; } if (d && typeof d === 'object') netReceive(d); };
+  dc.onclose = () => { if (NET.on) netLost('Your friend disconnected.'); };
+}
+function rtcPc() {
+  const pc = new RTCPeerConnection({ iceServers: ICE });
+  pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') netLost("Couldn't connect directly. One of your networks may block it (common on school or work Wi-Fi). Try the claude.ai link instead."); };
+  return (RTC.pc = pc);
+}
+const gathered = pc => new Promise(res => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 4000); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); });
+async function packCode(kind, sdp) {
+  const raw = new TextEncoder().encode(JSON.stringify({ v: NET_PROTO, k: kind, s: sdp }));
+  let bytes = raw, z = 0;
+  if (typeof CompressionStream === 'function') { bytes = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()); z = 1; }
+  let s = ''; for (const b of bytes) s += String.fromCharCode(b);
+  return `PHX${z}${kind}-` + btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function unpackCode(code) {
+  const m = /^PHX([01])([OA])-([A-Za-z0-9_-]{20,20000})$/.exec(String(code || '').replace(/\s+/g, ''));
+  if (!m) throw new Error("That doesn't look like a code from this game.");
+  const bin = atob(m[3].replace(/-/g, '+').replace(/_/g, '/')), bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  let raw = bytes;
+  if (m[1] === '1') { if (typeof DecompressionStream !== 'function') throw new Error('This browser cannot read that code.'); raw = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()); }
+  const d = JSON.parse(new TextDecoder().decode(raw));
+  if (!d || d.k !== m[2] || typeof d.s !== 'string' || d.s.length > 20000) throw new Error('That code is damaged. Copy it again.');
+  if (d.v !== NET_PROTO) throw new Error('Your friend is on a different version of the game. Both refresh and try again.');
+  return d;
+}
+async function rtcHost() {
+  const pc = rtcPc(); rtcWire(pc.createDataChannel('ph', { ordered: false, maxRetransmits: 2 }));
+  await pc.setLocalDescription(await pc.createOffer()); await gathered(pc);
+  return packCode('O', pc.localDescription.sdp);
+}
+async function rtcAnswer(code) { const d = await unpackCode(code); if (d.k !== 'A') throw new Error('That is an invite code. Paste the reply code your friend sent back.'); await RTC.pc.setRemoteDescription({ type: 'answer', sdp: d.s }); }
+async function rtcJoin(code) {
+  const d = await unpackCode(code); if (d.k !== 'O') throw new Error("That's a reply code. Paste the invite code from the host.");
+  const pc = rtcPc(); pc.ondatachannel = ev => rtcWire(ev.channel);
+  await pc.setRemoteDescription({ type: 'offer', sdp: d.s }); await pc.setLocalDescription(await pc.createAnswer()); await gathered(pc);
+  return packCode('A', pc.localDescription.sdp);
+}
+
+// ===== session =====
+function netHello() { netSend({ t: 'hello', v: NET_PROTO }); }
+function netConnected() {
+  if (NET.on) return;
+  NET.on = true; NET.lost = false; NET.lastIn = performance.now(); NET.me = NET.role === 'host' ? 0 : 1;
+  Sfx.play('unlock', true); showToast('Connected!', NET.role === 'host' ? 'Pick a game for the two of you' : 'Waiting for the host to pick a game');
+  netPanel(); netPill();
+}
+function netClose(say) {
+  if (NET.on || NET.link) netSend({ t: 'bye' });
+  try { NET.link && NET.link.close(); } catch { /* closed */ }
+  NET.on = false; NET.link = null; NET.role = null; NET.pend = []; RTC.pc = null; RTC.dc = null;
+  if (say) showToast(say); netPill();
+}
+function netLost(why) {
+  if (!NET.on && !NET.link) return;
+  const inRun = S && S.net;
+  netClose(); NET.lost = true;
+  showToast('Connection lost', why || 'Your friend left the game.');
+  if (inRun && view === 'play') { if (S.mode === 'playing' && !S.paused) togglePause(); }
+  netPanelRefresh();
+}
+function netReceive(d) {
+  NET.lastIn = performance.now();
+  switch (d.t) {
+    case 'hello': if (NET.role === 'host') { netSend({ t: 'welcome', v: NET_PROTO }); if (d.v !== NET_PROTO) { showToast('Version mismatch', 'Both of you refresh the game, then connect again.'); return; } netConnected(); } return;
+    case 'welcome': if (NET.role === 'guest') netConnected(); return;
+    case 'bye': netLost('Your friend left the game.'); return;
+    case 'ping': netSend({ t: 'pong', pt: d.pt }); return;
+    case 'pong': if (typeof d.pt === 'number') NET.rtt = Math.round(performance.now() - d.pt); return;
+  }
+  if (!NET.on) return;
+  try {
+    if (NET.role === 'guest') netGuestIn(d); else netHostIn(d);
+  } catch (e) { console.error(e); }
+}
+// keepalive and lost-connection detection
+setInterval(() => {
+  if (!NET.on) return;
+  const now = performance.now();
+  if (NET.role === 'host' && now - NET.pingT > 2000) { NET.pingT = now; netSend({ t: 'ping', pt: now }); }
+  if (NET.role === 'guest' && now - NET.pingT > 2000) { NET.pingT = now; netSend({ t: 'ping', pt: now }); }
+  if (now - NET.lastIn > 9000) netLost('No word from your friend for a while.');
+  netPill();
+}, 1000);
+
+// ===== host: stream the battle =====
+function b64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s); }
+function unb64(s) { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+const SNAP_B = 13, SNAP_MAX = 200;
+function packEnemies(list) {
+  const u = new Uint8Array(list.length * SNAP_B), v = new DataView(u.buffer), tot = S.map.total || 1;
+  list.forEach((e, i) => {
+    const o = i * SNAP_B, ti = Math.max(0, ENEMY_KEYS.indexOf(e.type));
+    v.setUint16(o, e.id & 0xffff); u[o + 2] = ti;
+    u[o + 3] = (e.zed ? 1 : 0) | (e.king && !e.mini ? 2 : 0) | (e.mini ? 4 : 0) | (e.detour != null || e.def.fly || e.fromGate ? 8 : 0) | (e.revealed ? 16 : 0) | (e.dirx > 0 ? 32 : 0) | (e.vanish > 0 ? 64 : 0) | (e.coverT > 0 ? 128 : 0);
+    u[o + 4] = Math.min(255, Math.round((e.big || 1) * 40));
+    v.setUint16(o + 5, Math.round(clamp(e.x + 200, 0, 3200) * 20)); v.setUint16(o + 7, Math.round(clamp(e.y + 200, 0, 3200) * 20));
+    v.setUint16(o + 9, Math.round(clamp(e.dist / tot, 0, 1) * 65535));
+    u[o + 11] = Math.round(clamp(e.hp / (e.maxHp || 1), 0, 1) * 255);
+    u[o + 12] = (e.slow > 0 ? 1 : 0) | (e.frozen > 0 ? 2 : 0) | (e.burn > 0 ? 4 : 0) | (e.stun > 0 ? 8 : 0) | (e.flash > 0 ? 16 : 0) | (e.shield > 0 ? 32 : 0) | (e.chillT > 0 ? 64 : 0) | (e.inside ? 128 : 0);
+  });
+  return b64(u);
+}
+function hostSendSnap() {
+  const live = S.enemies.filter(e => e.alive);
+  if (live.length > SNAP_MAX * 2) live.sort((a, b) => b.dist - a.dist), live.length = SNAP_MAX * 2;
+  const n = ++NET.snapSeq, K = Math.max(1, Math.ceil(live.length / SNAP_MAX));
+  for (let k = 0; k < K; k++) netSend({ t: 's', r: NET.run, n, k, K, d: packEnemies(live.slice(k * SNAP_MAX, (k + 1) * SNAP_MAX)) });
+}
+function hostTowers() { return S.towers.map(t => [t.id, TOWER_ORDER.indexOf(t.type), t.c, t.r, t.level, t.branch == null ? -1 : t.branch, t.owner == null ? -1 : t.owner, t.vet || 0, t.frozen > 0 ? 1 : 0, t.mode || 0]); }
+function hostSendTowers(force) {
+  const tw = hostTowers(), sig = JSON.stringify(tw);
+  if (!force && sig === NET.wSig) return;
+  NET.wSig = sig; netSend({ t: 'w', r: NET.run, tw });
+}
+function hostState() {
+  const C = S.coop, V = S.vs, o = { t: 'g', r: NET.run, w: S.wave, wa: S.waveActive ? 1 : 0, l: S.lives, ml: S.maxLives, p: S.paused ? 1 : 0, we: S.weather, wi: S.wind, td: S.todT, ack: NET.lastQ, go: S.gold, k: S.kills };
+  if (C) Object.assign(o, { ca: C.cash.map(Math.floor), b: Math.round(C.brk * 10) / 10, rd: C.ready.map(x => (x ? 1 : 0)), ch: C.chips, rp: C.repairs, gf: C.gifted, cu: [[C.cur[0].c, C.cur[0].r], [C.cur[1].c, C.cur[1].r]], se: C.sel, fl: C.flawless ? 1 : 0, ld: C.load,
+    ms: C.msg.map(m => (m && performance.now() - m.t < 3500 ? [String(m.text).slice(0, 120), m.bad ? 1 : 0] : null)),
+    pl: [...(S.plans || new Map()).values()].slice(0, 40).map(p => [p.c, p.r, TOWER_ORDER.indexOf(p.type), p.owner]),
+    dr: (S.drops || []).filter(d => !d.gone).slice(0, 12).map(d => [Math.round(d.x), Math.round(d.y), d.kind, Math.round(d.t * 10) / 10]) });
+  if (V) Object.assign(o, { vs: { c: Math.floor(V.cash), i: Math.round((V.inc + V.eco) * 10) / 10, pr: Math.round(V.prep * 10) / 10, tt: Math.round(V.t), bc: Math.round(V.bossCd * 10) / 10, sn: V.sent, bo: V.bosses, q: V.queue.length, cu: [V.cur.c, V.cur.r], se: V.sel } });
+  if (NET.fx.length) { o.fx = NET.fx.slice(0, 12); NET.fx.length = 0; }
+  return o;
+}
+setInterval(() => {
+  if (!netHost()) return;
+  const now = performance.now(), fast = NET.link && NET.link.kind === 'rtc';
+  if (now - NET.sT >= (fast ? 66 : 190)) { NET.sT = now; hostSendSnap(); }
+  if (now - NET.gT >= (fast ? 150 : 330) || NET.fx.length > 4) { NET.gT = now; netSend(hostState()); }
+  if (now - NET.wT >= 1200) { NET.wT = now; hostSendTowers(true); } else hostSendTowers(false);
+  if (NET.startResend && now - NET.startResend.t > 900 && NET.startResend.n < 6) { NET.startResend.t = now; NET.startResend.n++; netSend(NET.startResend.msg); }
+}, 60);
+// what the guest should also see and hear
+const addBannerNet = addBanner;
+addBanner = function (title, sub, color) { if (netHost()) NET.fx.push(['b', String(title).slice(0, 60), String(sub || '').slice(0, 120), String(color || '#fff3c4').slice(0, 20)]); return addBannerNet(title, sub, color); };
+const coopToneNet = coopTone;
+coopTone = function (kind, p = 0) { if (netHost()) NET.fx.push(['t', kind, p]); return coopToneNet(kind, p); };
+const addShakeNet = addShake;
+addShake = function (n) { if (netHost() && n >= 6) NET.fx.push(['k', n]); return addShakeNet(n); };
+
+// ===== host: moves from the guest =====
+const NET_COOP_ACTS = ['coopEnter', 'coopSell', 'coopBranch', 'coopTarget', 'coopReady', 'coopGift', 'coopRepair'];
+const NET_VS_ACTS = ['vsEnter', 'vsSell', 'vsBranch', 'vsSend', 'vsTarget'];
+function netHostIn(d) {
+  switch (d.t) {
+    case 'lob': if (!coopLobbyEl.hidden) { const L = Array.isArray(d.pick) ? d.pick.filter((t, i, a) => TOWERS[t] && a.indexOf(t) === i).slice(0, COOP.slots) : []; LOB.pick[1] = L; LOB.ready[1] = !!d.ready && L.length === COOP.slots; lobDraw(); netLobbyCheck(); } return;
+    case 'started': NET.startResend = null; return;
+    case 'home': if (view === 'play' && S && S.net) { NET.applying = true; try { goHome(); } finally { NET.applying = false; } showToast('Your friend went back to base'); } return;
+    case 'c': if (netHost()) netApplyCursor(d); return;
+    case 'a': {
+      if (!netHost() || typeof d.q !== 'number') return;
+      if (d.q <= NET.lastQ) return; // already done
+      NET.lastQ = d.q; netApplyCursor(d);
+      NET.applying = true;
+      try {
+        if (d.f === 'pause') { if (S.mode === 'playing') togglePause(); }
+        else if (S.coop && NET_COOP_ACTS.includes(d.f) && !S.paused) window[d.f](1, intN(d.x, 0, 1));
+        else if (S.vs && NET_VS_ACTS.includes(d.f) && !S.paused && NET.vsRole !== netGuestRole()) {
+          if (d.f === 'vsSend') { const u = VS_UNITS.find(x => x.k === d.k); if (u) vsSend(u, !!d.m); }
+          else if (d.f === 'vsBranch') vsBranch(intN(d.x, 0, 1));
+          else if (d.f === 'vsTarget') { if (vsTile()) { S.selected = vsTile(); cycleTarget(); S.selected = null; } }
+          else window[d.f]();
+        }
+      } finally { NET.applying = false; }
+      return;
+    }
+  }
+}
+const netGuestRole = () => (NET.hostRole === 'attacker' ? 'defender' : 'attacker');
+function netApplyCursor(d) {
+  if (S.coop) {
+    const C = S.coop; if (Array.isArray(d.cu)) C.cur[1] = { c: intN(d.cu[0], 0, COLS - 1), r: intN(d.cu[1], 0, ROWS - 1) };
+    if (typeof d.se === 'number') C.sel[1] = intN(d.se, 0, COOP.slots - 1); C.dirty = true;
+  } else if (S.vs && netGuestRole() === 'defender') {
+    if (Array.isArray(d.cu)) S.vs.cur = { c: intN(d.cu[0], 0, COLS - 1), r: intN(d.cu[1], 0, ROWS - 1) };
+    if (typeof d.se === 'number') S.vs.sel = intN(d.se, 0, 99);
+  }
+}
+
+// ===== guest: follow the host =====
+const NETG = { en: new Map(), tw: new Map(), snapT: 0 };
+function netGuestIn(d) {
+  switch (d.t) {
+    case 'lobby': return netGuestLobby(d);
+    case 'lob': if (!coopLobbyEl.hidden && Array.isArray(d.pick)) { LOB.pick[0] = d.pick.filter((t, i, a) => TOWERS[t] && a.indexOf(t) === i).slice(0, COOP.slots); LOB.ready[0] = !!d.ready; lobDraw(); } return;
+    case 'start': return netGuestStart(d);
+    case 'home': if (view === 'play' || !coopLobbyEl.hidden) { NET.applying = true; try { closeCoopLobby(); vsSetupEl.hidden = true; goHome(); } finally { NET.applying = false; } } netPanelRefresh(); return;
+    case 'end': return netGuestEnd(d);
+  }
+  if (!netGuest() || d.r !== NET.run) return;
+  if (d.t === 's') netGuestSnap(d);
+  else if (d.t === 'w') netGuestTowers(d.tw);
+  else if (d.t === 'g') netGuestState(d);
+}
+function netGuestLobby(d) {
+  if (view === 'play') { NET.applying = true; try { goHome(); } finally { NET.applying = false; } }
+  netEl.hidden = true; coopCampEl.hidden = true; ui.modesModal.hidden = true; ui.picker.hidden = true;
+  if (d.k === 'coop') {
+    const M = typeof d.mission === 'string' ? COOP_MISSIONS.find(m => m.id === d.mission) : null, map = intN(d.map, 0, MAPS.length - 1);
+    if (coopLobbyEl.hidden || LOB.mission !== M || LOB.map !== map) { NET.applying = true; try { openCoopLobby(map, M); } finally { NET.applying = false; } LOB.pick[1] = coopLoadout(0); lobDraw(); netSendLob(); }
+  } else if (d.k === 'vs') {
+    NET.hostRole = d.role === 'attacker' ? 'attacker' : 'defender';
+    netPanel(`Your friend is setting up Versus on ${MAPS[intN(d.map, 0, MAPS.length - 1)].name}. You'll ${netGuestRole() === 'attacker' ? 'attack' : 'defend'}.`);
+  }
+}
+function netGuestStart(d) {
+  if (typeof d.r !== 'number') return;
+  // still on the way back to base? that screen would reset the game behind us, so start once it's done
+  if (!ui.loading.hidden && view !== 'play') { if (!netGuestStart.wait) netGuestStart.wait = setTimeout(() => { netGuestStart.wait = 0; netGuestStart(d); }, 400); return; }
+  netSend({ t: 'started', r: d.r });
+  if (NET.run === d.r && S && S.net) return;
+  NET.run = d.r; NET.endData = null; NETG.en.clear(); NETG.tw.clear(); NET.pend = []; NET.seq = 0;
+  netEl.hidden = true; closeCoopLobby(); vsSetupEl.hidden = true; ui.picker.hidden = true; ui.modesModal.hidden = true; coopCampEl.hidden = true;
+  const map = intN(d.map, 0, MAPS.length - 1);
+  NET.applying = true;
+  try {
+    if (d.mode === 'coop') {
+      const load = Array.isArray(d.load) && d.load.length === 2 ? d.load.map(L => (Array.isArray(L) ? L.filter(t => TOWERS[t]).slice(0, COOP.slots) : [])) : [coopLoadout(0), coopLoadout(1)];
+      const mission = typeof d.mission === 'string' && COOP_MISSIONS.some(m => m.id === d.mission) ? d.mission : null;
+      startRun('coop', map, { coop: { load, mission } });
+    } else if (d.mode === 'versus') {
+      NET.hostRole = d.role === 'attacker' ? 'attacker' : 'defender'; NET.vsRole = netGuestRole();
+      startRun('versus', map, { vs: { faction: d.faction === 'zombie' ? 'zombie' : 'syndicate' } });
+    }
+  } finally { NET.applying = false; }
+}
+function netGuestSnap(d) {
+  if (typeof d.d !== 'string' || typeof d.n !== 'number') return;
+  const K = intN(d.K, 1, 8), k = intN(d.k, 0, K - 1);
+  if (!NET.parts || NET.parts.n !== d.n) { if (NET.parts && d.n < NET.parts.n) return; NET.parts = { n: d.n, K, got: new Map() }; }
+  NET.parts.got.set(k, d.d);
+  if (NET.parts.got.size < K) return;
+  const all = []; for (let i = 0; i < K; i++) all.push(NET.parts.got.get(i));
+  NET.parts = null; netApplySnap(all);
+}
+function netApplySnap(chunks) {
+  const now = performance.now(), dtS = clamp((now - (NETG.snapT || now - 200)) / 1000, .03, 1); NETG.snapT = now;
+  const seen = new Set(), tot = S.map.total || 1; let budget = SNAP_MAX * 2;
+  for (const c of chunks) {
+    let u; try { u = unb64(c); } catch { return; }
+    const v = new DataView(u.buffer);
+    for (let o = 0; o + SNAP_B <= u.length && budget-- > 0; o += SNAP_B) {
+      const id = v.getUint16(o), ti = u[o + 2], fl = u[o + 3]; if (ti >= ENEMY_KEYS.length) continue;
+      const x = v.getUint16(o + 5) / 20 - 200, y = v.getUint16(o + 7) / 20 - 200, dist = v.getUint16(o + 9) / 65535 * tot, hp = u[o + 11] / 255, st = u[o + 12];
+      let e = NETG.en.get(id);
+      if (!e || !e.alive) {
+        NET.applying = true;
+        try { e = spawnEnemy(ENEMY_KEYS[ti], dist, fl & 2 ? 'king' : fl & 4 ? 'mini' : null); } finally { NET.applying = false; }
+        if (!e) continue;
+        e.netId = id; e.fromGate = false; e.inside = false; e.gd = dist; e.gx = x; e.gy = y; e.nv = 0; e.vx = 0; e.vy = 0;
+        NETG.en.set(id, e);
+      } else {
+        e.nv = clamp((dist - e.nd) / dtS, -400, 400); e.vx = clamp((x - e.nx) / dtS, -600, 600); e.vy = clamp((y - e.ny) / dtS, -600, 600);
+        if (Math.abs(dist - e.gd) > T * 2.5) e.gd = dist; // too far off: snap
+        if (Math.hypot(x - e.gx, y - e.gy) > T * 2.5) { e.gx = x; e.gy = y; }
+      }
+      e.nd = dist; e.nx = x; e.ny = y; e.nt = now; e.free = !!(fl & 8);
+      if (fl & 1 && !e.zed && typeof ZDEF !== 'undefined' && ZDEF[e.type]) { e.zed = true; e.def = ZDEF[e.type]; }
+      e.revealed = !!(fl & 16); e.vanish = fl & 64 ? Math.max(e.vanish || 0, .2) : 0; e.coverT = fl & 128 ? Math.max(e.coverT || 0, .2) : 0;
+      e.big = u[o + 4] / 40 || 1;
+      e.hp = Math.max(e.maxHp * .002, hp * e.maxHp);
+      e.slow = st & 1 ? Math.max(e.slow || 0, .3) : 0; e.slowT = st & 1 ? .3 : 0; e.frozen = st & 2 ? .25 : 0; e.burn = st & 4 ? Math.max(e.burn, .25) : 0; e.burnDps = st & 4 ? e.burnDps || 0 : 0;
+      e.stun = st & 8 ? .25 : 0; if (st & 16) e.flash = Math.max(e.flash || 0, .08); e.chillT = st & 64 ? .3 : 0; e.inside = !!(st & 128); e.emerge = e.inside ? .55 : 1;
+      seen.add(id);
+    }
+  }
+  for (const [id, e] of NETG.en) {
+    if (seen.has(id)) continue;
+    NETG.en.delete(id);
+    if (!e.alive) continue;
+    // gone on the host: killed (blow it up here too) or reached HQ (just vanish)
+    if (e.gd < tot - T * 1.2 && !e.def.fly) { try { deathFx(e); } catch { /* cosmetic */ } } else if (e.def.fly && e.gx < S.map.base.x - T * 1.2) { try { deathFx(e); } catch { /* cosmetic */ } }
+    e.alive = false;
+  }
+}
+function netGuestTowers(list) {
+  if (!Array.isArray(list)) return;
+  const seen = new Set();
+  for (const a of list.slice(0, 200)) {
+    if (!Array.isArray(a)) continue;
+    const id = intN(a[0], 0, 1e9), type = TOWER_ORDER[intN(a[1], 0, TOWER_ORDER.length - 1)], c = intN(a[2], 0, COLS - 1), r = intN(a[3], 0, ROWS - 1);
+    const level = intN(a[4], 0, 2), branch = intN(a[5], -1, 1), owner = intN(a[6], -1, 1), vet = intN(a[7], 0, 9);
+    let tw = NETG.tw.get(id);
+    if (tw && (tw.type !== type || tw.c !== c || tw.r !== r || !S.towers.includes(tw))) { netRemoveTower(tw); tw = null; }
+    if (!tw) {
+      const old = S.occ.get(r * COLS + c); if (old) netRemoveTower(old);
+      const g0 = S.gold; S.gold = 1e9; NET.applying = true;
+      try { tw = buildTower(type, c, r); } finally { NET.applying = false; S.gold = g0; }
+      if (!tw) continue;
+      tw.netId = id; NETG.tw.set(id, tw);
+    }
+    if (tw.level !== level) { tw.level = level; tw.born = S.anim; tw._statsKey = null; S.buffT = 0; Sfx.play('upgrade'); S.rings.push({ x: tw.x, y: tw.y, r: 8, max: 40, life: .4, maxLife: .4, color: '230,236,245' }); }
+    const br = branch < 0 ? null : branch; if (tw.branch !== br) { tw.branch = br; tw.born = S.anim; tw._statsKey = null; S.buffT = 0; if (br != null) Sfx.play('branch'); }
+    tw.owner = owner < 0 ? null : owner; tw.vet = vet; tw.mode = intN(a[9], 0, 3); if (a[8]) tw.frozen = Math.max(tw.frozen || 0, .5);
+    seen.add(id);
+  }
+  for (const [id, tw] of NETG.tw) if (!seen.has(id)) { netRemoveTower(tw); NETG.tw.delete(id); }
+}
+function netRemoveTower(tw) {
+  S.towers = S.towers.filter(t => t !== tw); S.occ.delete(tw.r * COLS + tw.c); S.cars = S.cars.filter(c => c.tw !== tw); S.dirty = true; S.buffT = 0;
+  if (S.selected === tw) S.selected = null;
+  for (let k = 0; k < 10; k++) S.particles.push({ x: tw.x + (Math.random() - .5) * 30, y: tw.y, vx: (Math.random() - .5) * 80, vy: -30 - Math.random() * 40, life: .6, max: .6, size: 5, color: '#c9b9a0', kind: 'smoke' });
+  Sfx.play('sell');
+}
+function netGuestState(d) {
+  S.wave = intN(d.w, 0, 9999); S.waveActive = !!d.wa; S.lives = intN(d.l, 0, 9999); S.maxLives = intN(d.ml, 1, 9999); S.kills = intN(d.k, 0, 1e9);
+  if (S.paused !== !!d.p) S.paused = !!d.p;
+  if (typeof d.we === 'string' && WEATHER_TEXT[d.we]) { S.weather = d.we; S.wind = clampN(d.wi, 0, 5, 1); }
+  if (typeof d.td === 'number') S.todT = clampN(d.td, 0, 1e6, S.todT);
+  if (typeof d.ack === 'number') NET.pend = NET.pend.filter(a => a.q > d.ack);
+  const C = S.coop;
+  if (C && Array.isArray(d.ca)) {
+    C.cash = [clampN(d.ca[0], 0, 1e9), clampN(d.ca[1], 0, 1e9)]; C.brk = clampN(d.b, -10, 999); C.ready = [!!(d.rd && d.rd[0]), !!(d.rd && d.rd[1])];
+    if (Array.isArray(d.ch)) C.chips = [intN(d.ch[0], 0, 3), intN(d.ch[1], 0, 3)];
+    C.repairs = intN(d.rp, 0, 999); if (Array.isArray(d.gf)) C.gifted = [intN(d.gf[0], -1, 9999), intN(d.gf[1], -1, 9999)];
+    if (Array.isArray(d.cu) && Array.isArray(d.cu[0])) C.cur[0] = { c: intN(d.cu[0][0], 0, COLS - 1), r: intN(d.cu[0][1], 0, ROWS - 1) };
+    if (Array.isArray(d.se)) C.sel[0] = intN(d.se[0], 0, COOP.slots - 1);
+    C.flawless = !!d.fl;
+    if (Array.isArray(d.ld) && d.ld.length === 2) { const L = d.ld.map(x => (Array.isArray(x) ? x.filter(t => TOWERS[t]).slice(0, COOP.slots) : [])); if (L[0].length && L[1].length && JSON.stringify(L) !== JSON.stringify(C.load)) { C.load = L; coopBuildPanels(); } }
+    if (Array.isArray(d.ms)) for (const p of [0, 1]) { const m = d.ms[p]; if (Array.isArray(m) && typeof m[0] === 'string') { const tx = safeText(m[0], 120); if (!C.msg[p] || C.msg[p].text !== tx) C.msg[p] = { text: tx, bad: !!m[1], t: performance.now() }; } }
+    if (Array.isArray(d.pl)) { const P = new Map(); for (const p of d.pl.slice(0, 40)) if (Array.isArray(p)) { const c = intN(p[0], 0, COLS - 1), r = intN(p[1], 0, ROWS - 1), ty = TOWER_ORDER[intN(p[2], 0, TOWER_ORDER.length - 1)]; P.set(r * COLS + c, { c, r, type: ty, owner: intN(p[3], 0, 1), t: S.anim }); } S.plans = P; }
+    if (Array.isArray(d.dr)) S.drops = d.dr.slice(0, 12).filter(Array.isArray).map(a => ({ x: clampN(a[0], 0, W), y: clampN(a[1], 0, H), kind: ['gold', 'repair', 'power'].includes(a[2]) ? a[2] : 'gold', t: clampN(a[3], 0, 60), fall: 1.4 }));
+    C.dirty = true;
+  }
+  const V = S.vs;
+  if (V && d.vs && typeof d.vs === 'object') {
+    const v = d.vs; V.cash = clampN(v.c, 0, 1e9); V.inc = clampN(v.i, 0, 1e6); V.eco = 0; V.prep = clampN(v.pr, -10, 999); V.t = clampN(v.tt, 0, 1e7); V.bossCd = clampN(v.bc, 0, 999); V.sent = intN(v.sn, 0, 1e7); V.bosses = intN(v.bo, 0, 1e5);
+    if (NET.vsRole !== 'defender' && Array.isArray(v.cu)) { V.cur = { c: intN(v.cu[0], 0, COLS - 1), r: intN(v.cu[1], 0, ROWS - 1) }; V.sel = intN(v.se, 0, 99); }
+  }
+  if (typeof d.go === 'number' && S.vs) S.gold = clampN(d.go, 0, 1e9);
+  if (Array.isArray(d.fx)) for (const f of d.fx.slice(0, 12)) {
+    if (!Array.isArray(f)) continue;
+    if (f[0] === 'b') addBannerNet(safeText(f[1], 60), safeText(f[2], 120), /^#[0-9a-f]{3,8}$/i.test(f[3]) ? f[3] : '#fff3c4');
+    else if (f[0] === 't' && typeof f[1] === 'string') coopToneNet(f[1].slice(0, 12), intN(f[2], 0, 1));
+    else if (f[0] === 'k') addShakeNet(clampN(f[1], 0, 30));
+  }
+}
+// every frame on the guest: glide enemies toward where the host says they are
+const updateNet = update;
+update = function (dt) {
+  updateNet(dt);
+  if (!netGuest()) return;
+  const now = performance.now(), k = Math.min(1, dt * 10);
+  for (const e of NETG.en.values()) {
+    if (!e.alive) continue;
+    const age = Math.min(.35, (now - (e.nt || now)) / 1000);
+    e.gd += (e.nd + e.nv * age - e.gd) * k; e.dist = Math.max(0, e.gd);
+    if (e.free) { e.gx += (e.nx + e.vx * age - e.gx) * k; e.gy += (e.ny + e.vy * age - e.gy) * k; e.x = e.gx; e.y = e.gy; const l = Math.hypot(e.vx, e.vy); if (l > 1) { e.dirx = e.vx / l; e.diry = e.vy / l; } }
+    else { const p = pointAt(S.map, Math.min(e.dist, S.map.total - 1)); e.x = p.x; e.y = p.y; e.dirx = p.dx; e.diry = p.dy; e.gx = e.x; e.gy = e.y; }
+    if (e.hp <= 0) e.hp = e.maxHp * .002;
+  }
+};
+
+// ===== guest: the shadow copy never decides anything for itself =====
+const guestHold = (name, fallback) => { const f = window[name]; window[name] = function (...a) { if (netGuest() && !NET.applying) return typeof fallback === 'function' ? fallback(...a) : fallback; return f.apply(this, a); }; };
+guestHold('startWave'); guestHold('waveComplete'); guestHold('reachBase'); guestHold('gameOver'); guestHold('victory'); guestHold('farmPayout');
+guestHold('vsUpdate'); guestHold('coopCrates'); guestHold('planTick'); guestHold('collectDrop', false);
+guestHold('killEnemy', e => { if (e) e.hp = Math.max(e.hp, (e.maxHp || 1) * .002); });
+guestHold('buildTower', null);
+guestHold('spawnEnemy', (type, dist = 0, spec = null) => { const n = S.enemies.length; let e; NET.applying = true; try { e = window.spawnEnemy(type, dist, spec); } finally { NET.applying = false; } if (S.enemies.length > n) S.enemies.length = n; if (e) { e.alive = false; NETG.en.forEach((v, k) => { if (v === e) NETG.en.delete(k); }); } return e; });
+
+// ===== the guest's and host's own moves =====
+// In an online game every key on your keyboard and every controller drives YOUR player.
+function netAct(f, extra) { const q = ++NET.seq, msg = Object.assign({ t: 'a', q, f, sent: performance.now(), n: 0 }, netCursorFields(), extra || {}); NET.pend.push(msg); netSend(msg); if (NET.pend.length > 30) NET.pend.shift(); }
+function netCursorFields() { if (S.coop) return { cu: [S.coop.cur[1].c, S.coop.cur[1].r], se: ((S.coop.sel[1] % COOP.slots) + COOP.slots) % COOP.slots }; if (S.vs) return { cu: [S.vs.cur.c, S.vs.cur.r], se: S.vs.sel }; return {}; }
+setInterval(() => { // resend unacknowledged moves, and keep the host up to date on where your cursor is
+  if (!netGuest()) return;
+  const now = performance.now();
+  for (const a of NET.pend) if (now - a.sent > 700 && a.n < 4) { a.sent = now; a.n++; netSend(a); }
+  const cf = netCursorFields(), sig = JSON.stringify(cf);
+  if (sig !== NET.curSig && now - NET.curT > 110) { NET.curSig = sig; NET.curT = now; netSend(Object.assign({ t: 'c' }, cf)); }
+}, 100);
+for (const name of ['coopEnter', 'coopSell', 'coopBranch', 'coopTarget', 'coopReady', 'coopGift', 'coopRepair']) {
+  const f = window[name];
+  window[name] = function (p, x) {
+    if (!(S && S.net && NET.on) || NET.applying) return f.call(this, p, x);
+    if (NET.role === 'host') return f.call(this, 0, x);
+    if (netGuest()) netAct(name, { x: x || 0 });
+  };
+}
+for (const name of ['coopMove', 'coopPick', 'coopCycle']) {
+  const f = window[name];
+  window[name] = function (p, a, b) { return f.call(this, S && S.net && NET.on && !NET.applying ? NET.me : p, a, b); };
+}
+const coopPauseNet = togglePause;
+togglePause = function () { if (netGuest() && !NET.applying) { netAct('pause'); return; } return coopPauseNet(); };
+// versus: each side only does their own job
+for (const [name, role] of [['vsSend', 'attacker'], ['vsEnter', 'defender'], ['vsSell', 'defender'], ['vsBranch', 'defender'], ['vsMove', 'defender'], ['vsCycle', 'defender']]) {
+  const f = window[name];
+  window[name] = function (...a) {
+    if (!(S && S.net && NET.on) || NET.applying) return f.apply(this, a);
+    if (NET.vsRole !== role) return;
+    if (NET.role === 'host' || name === 'vsMove' || name === 'vsCycle') return f.apply(this, a);
+    if (name === 'vsSend') netAct('vsSend', { k: a[0] && a[0].k, m: a[1] ? 1 : 0 });
+    else netAct(name, { x: a[0] || 0 });
+  };
+}
+// any controller plays your side in an online game
+padRoute((i, n) => {
+  if (!(S && S.net && NET.on) || view !== 'play' || S.mode !== 'playing' || !ui.settings.hidden) return false;
+  if (n === 'menu') { togglePause(); return true; }
+  if (S.paused) return false;
+  if (S.coop) {
+    const map = { up: ['move', 0, -1], down: ['move', 0, 1], left: ['move', -1, 0], right: ['move', 1, 0], a: ['enter'], b: ['sell'], x: ['gift'], y: ['repair'], lb: ['cycle', -1], rb: ['cycle', 1], lt: ['branch', 0], rt: ['branch', 1], rs: ['target'], ls: ['target'], view: ['ready'] }[n];
+    if (map) coopDo(NET.me, ...map); return true;
+  }
+  if (S.vs) {
+    const V = S.vs;
+    if (NET.vsRole === 'defender') { const mv = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[n]; if (mv) vsMove(...mv); else if (n === 'a') vsEnter(); else if (n === 'b') vsSell(); else if (n === 'lb' || n === 'rb') vsCycle(n === 'rb' ? 1 : -1); else if (n === 'lt' || n === 'rt') vsBranch(n === 'lt' ? 0 : 1); }
+    else { const units = VS_UNITS.filter(u => !u.cd); if (V.padSel == null) V.padSel = 0; if (['lb', 'left', 'up'].includes(n)) V.padSel = (V.padSel + units.length - 1) % units.length; else if (['rb', 'right', 'down'].includes(n)) V.padSel = (V.padSel + 1) % units.length; else if (n === 'a' || n === 'x') vsSend(units[V.padSel], n === 'x'); else if (n === 'y') vsSend(VS_UNITS.find(u => u.cd), false); if (vsAtk._u) for (const u of VS_UNITS) { const b = vsAtk._u[u.k]; if (b) b.classList.toggle('pick', u === units[V.padSel]); } }
+    return true;
+  }
+  return false;
+}, true);
+Object.defineProperty(coopUi, 'mouseP', { configurable: true, get() { return S && S.net && NET.on ? NET.me : this._mp || 0; }, set(v) { this._mp = v; } });
+
+// ===== starting games together =====
+const startRunNet = startRun;
+startRun = function (mode, mapIdx, opts = {}) {
+  if (NET.on && NET.role === 'host' && !NET.applying && (mode === 'coop' || mode === 'versus') && ((mode === 'coop' && opts.coop) || (mode === 'versus' && opts.vs))) {
+    NET.run++; NET.lastQ = 0;
+    const msg = mode === 'coop'
+      ? { t: 'start', r: NET.run, mode, map: mapIdx, load: opts.coop.load, mission: opts.coop.mission || null }
+      : { t: 'start', r: NET.run, mode, map: mapIdx, faction: opts.vs.faction, role: NET.hostRole };
+    if (mode === 'versus') NET.vsRole = NET.hostRole;
+    if (mode === 'coop' && msg.mission) msg.map = Math.max(0, MAPS.findIndex(m => m.id === COOP_MISSIONS.find(x => x.id === msg.mission).map));
+    NET.startResend = { msg, t: performance.now(), n: 0 }; netSend(msg);
+  }
+  return startRunNet(mode, mapIdx, opts);
+};
+const beginRunNet = beginRun;
+beginRun = function (mode, mapIdx, opts) {
+  beginRunNet(mode, mapIdx, opts);
+  if (NET.on && (mode === 'coop' || mode === 'versus')) {
+    S.net = { run: NET.run, role: NET.role };
+    NETG.en.clear(); NETG.tw.clear(); NET.wSig = ''; NET.fx.length = 0;
+    if (NET.role === 'guest') { S.spawnList = []; if (S.vs) S.vs.prep = Math.max(S.vs.prep, 0); }
+  } else S.net = null;
+  netPill();
+};
+const goHomeNet = goHome;
+goHome = function () { if (NET.on && S && S.net && !NET.applying) netSend({ t: 'home' }); netEl.hidden = true; return goHomeNet(); };
+// co-op lobby: each computer picks its own column
+const openCoopLobbyNet = openCoopLobby;
+openCoopLobby = function (mapIdx, mission) {
+  openCoopLobbyNet(mapIdx, mission);
+  if (!NET.on) return;
+  if (NET.role === 'host' && !NET.applying) { netSend({ t: 'lobby', k: 'coop', map: LOB.map, mission: LOB.mission ? LOB.mission.id : null }); LOB.pick[1] = []; LOB.ready[1] = false; netSendLob(); }
+  lobDraw();
+};
+function netSendLob() { if (NET.on && !coopLobbyEl.hidden) netSend({ t: 'lob', pick: LOB.pick[NET.me], ready: LOB.ready[NET.me] }); }
+setInterval(() => { if (NET.on && !coopLobbyEl.hidden) { netSendLob(); if (NET.role === 'host') netSend({ t: 'lobby', k: 'coop', map: LOB.map, mission: LOB.mission ? LOB.mission.id : null }); } }, 1500);
+for (const name of ['lobToggle', 'lobMove']) { const f = window[name]; window[name] = function (p, ...a) { const r = f.call(this, NET.on ? NET.me : p, ...a); if (NET.on) netSendLob(); return r; }; }
+const lobReadyNet = lobReady;
+lobReady = function (p) {
+  if (!NET.on) return lobReadyNet(p);
+  const me = NET.me, need = COOP.slots - LOB.pick[me].length;
+  if (need > 0) { Sfx.play('error'); showToast(`Pick ${need} more tower${need === 1 ? '' : 's'}`); return; }
+  LOB.ready[me] = !LOB.ready[me]; Sfx.play('click', true); lobDraw(); netSendLob(); netLobbyCheck();
+};
+function netLobbyCheck() {
+  if (NET.role !== 'host' || !LOB.ready[0] || !LOB.ready[1]) return;
+  const c = coopSaved(); c.load[0] = LOB.pick[0].slice(); saveProfile();
+  closeCoopLobby(); ui.picker.hidden = true; ui.modesModal.hidden = true; coopCampEl.hidden = true;
+  Sfx.unlock(); startRun('coop', LOB.map, { coop: { load: [LOB.pick[0].slice(), LOB.pick[1].slice()], mission: LOB.mission && LOB.mission.id } });
+}
+const lobDrawNet = lobDraw;
+lobDraw = function () {
+  lobDrawNet();
+  if (!NET.on || coopLobbyEl.hidden) return;
+  for (let p = 0; p < 2; p++) {
+    const h = coopLobbyEl.querySelectorAll('.co-col h3')[p]; if (h) h.firstChild.textContent = `${COOP.p[p].name} · ${p === NET.me ? 'you' : 'your friend'}`;
+    if (p !== NET.me) { const dv = coopLobbyEl.querySelector(`.co-devline[data-p="${p}"]`); if (dv) dv.textContent = '🌐 Picking on their own computer'; LOB.btn[p].disabled = true; LOB.cells[p].forEach(b => { b.disabled = true; b.classList.remove('cur'); }); }
+  }
+};
+// versus setup: the host picks who attacks
+const openVsSetupNet = openVsSetup;
+openVsSetup = function (mapIdx) {
+  openVsSetupNet(mapIdx);
+  if (!NET.on || NET.role !== 'host') return;
+  const card = vsSetupEl.querySelector('.card'), row = el('div', 'vs-fac');
+  for (const [role, label, sub] of [['defender', 'I defend', 'Your friend sends the attacks'], ['attacker', 'I attack', 'Your friend builds the defence']]) {
+    const b = el('button', NET.hostRole === role ? 'on' : ''); b.appendChild(document.createTextNode(label)); b.appendChild(el('small', null, sub));
+    b.addEventListener('click', () => { NET.hostRole = role; Sfx.play('click', true); for (const x of row.children) x.classList.toggle('on', x === b); netSend({ t: 'lobby', k: 'vs', map: mapIdx, role }); });
+    row.appendChild(b);
+  }
+  card.insertBefore(el('div', 'mm-l mt-3', '🌐 Online: who does what?'), card.querySelector('.vs-ctl'));
+  card.insertBefore(row, card.querySelector('.vs-ctl'));
+  netSend({ t: 'lobby', k: 'vs', map: mapIdx, role: NET.hostRole });
+};
+const vsRematchNet = vsRematch;
+vsRematch = function (swap) { if (NET.on && NET.role === 'host' && swap) NET.hostRole = NET.hostRole === 'attacker' ? 'defender' : 'attacker'; if (netGuest()) return; return vsRematchNet(swap); };
+
+// ===== the end of a match =====
+const showCoopResultsNet = showCoopResults;
+showCoopResults = function (won) {
+  if (netHost()) {
+    const R = coopScores().map(o => Object.assign({}, o, { best: o.best ? { type: o.best.type } : null })), C = S.coop;
+    netSend({ t: 'end', r: NET.run, k: 'coop', won: !!won, R, st: C.st, fl: C.flawless ? 1 : 0, l: S.lives, ml: S.maxLives, w: S.wave });
+    setTimeout(() => { if (netHost()) netSend({ t: 'end', r: NET.run, k: 'coop', won: !!won, R, st: C.st, fl: C.flawless ? 1 : 0, l: S.lives, ml: S.maxLives, w: S.wave }); }, 900);
+  }
+  showCoopResultsNet(won);
+  if (netGuest()) netGuestEndButtons(coopResEl);
+};
+const coopScoresNet = coopScores;
+coopScores = function () {
+  if (netGuest() && NET.endData && Array.isArray(NET.endData.R)) {
+    return NET.endData.R.slice(0, 2).map((o, p) => ({ p, dmg: intN(o.dmg, 0, 1e12), kills: intN(o.kills, 0, 1e9), earned: intN(o.earned, 0, 1e12), spent: intN(o.spent, 0, 1e12), built: intN(o.built, 0, 1e6), upgrades: intN(o.upgrades, 0, 1e6), gifts: intN(o.gifts, 0, 1e6), repair: intN(o.repair, 0, 1e12), crates: intN(o.crates, 0, 1e6), score: clampN(o.score, 0, 1e12), best: o.best && TOWERS[o.best.type] ? { type: o.best.type } : null }));
+  }
+  return coopScoresNet();
+};
+function netGuestEnd(d) {
+  if (!S || !S.net || d.r !== NET.run || NET.endData) return;
+  NET.endData = d;
+  if (d.k === 'coop' && S.coop) {
+    S.lives = intN(d.l, 0, 9999); S.maxLives = intN(d.ml, 1, 9999); S.wave = intN(d.w, 0, 9999); S.coop.flawless = !!d.fl;
+    if (Array.isArray(d.st)) S.coop.st = [0, 1].map(p => { const s = d.st[p] || {}, o = {}; for (const k of ['kills', 'dmgSold', 'earned', 'spent', 'built', 'upgrades', 'gifts', 'repair', 'crates']) o[k] = clampN(s[k], 0, 1e12, 0); return o; });
+    S.mode = d.won ? 'won' : 'over'; S.placing = null; S.selected = null;
+    Sfx.play(d.won ? 'win' : 'over');
+    showCoopResults(!!d.won);
+  } else if (d.k === 'vs' && S.vs) {
+    const V = S.vs; V.held = intN(d.held, 0, 1e7); V.newBest = false; V.sent = intN(d.sent, 0, 1e7); V.bosses = intN(d.bo, 0, 1e5); S.kills = intN(d.kills, 0, 1e9); S.wave = intN(d.tier, 0, 9999);
+    S.mode = 'over'; Sfx.play('over'); showVsOver(); netGuestEndButtons(vsOverEl);
+  }
+}
+function netGuestEndButtons(root) {
+  for (const b of root.querySelectorAll('button')) { if (!/^(base)$/i.test(b.textContent.trim())) b.remove(); }
+  const row = root.querySelector('.flex.gap-3') || root.querySelector('.card');
+  const wait = el('span', 'tag', '🌐 Waiting for your friend to pick what\'s next…'); row.prepend(wait);
+}
+const gameOverNet = gameOver;
+gameOver = function () {
+  gameOverNet();
+  if (netHost() && S.vs) {
+    const V = S.vs, msg = { t: 'end', r: NET.run, k: 'vs', held: V.held, sent: V.sent, bo: V.bosses, kills: S.kills, tier: S.wave };
+    netSend(msg); setTimeout(() => netSend(msg), 900);
+  }
+};
+
+// ===== the online menu =====
+document.head.insertAdjacentHTML('beforeend', `<style>
+.net .card{max-width:620px}
+.net textarea{width:100%;min-height:86px;font:700 12px/1.35 ui-monospace,Menlo,Consolas,monospace;color:var(--ink);background:#fff8ec;border:3px solid var(--ink);border-radius:12px;padding:8px;resize:vertical;word-break:break-all}
+.net input.code{width:100%;font:400 30px var(--font-display);letter-spacing:.3em;text-transform:uppercase;text-align:center;color:var(--ink);background:#fff8ec;border:3px solid var(--ink);border-radius:14px;padding:6px}
+.net .big-code{font-family:var(--font-display);font-size:48px;letter-spacing:.25em;text-align:center;color:var(--ink);background:#fff8ec;border:4px dashed var(--ink);border-radius:18px;padding:8px}
+.net .opts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.net .opt{display:flex;flex-direction:column;gap:6px;background:var(--paper-2);border:3px solid var(--ink);border-radius:18px;padding:12px}
+.net .opt h3{margin:0;font-family:var(--font-display);font-weight:400;font-size:20px;color:var(--ink)}
+.net .opt p,.net .note{margin:0;font-size:13px;font-weight:800;color:var(--text-soft);line-height:1.4}
+.net .step{font-size:14px;font-weight:900;color:var(--ink);margin-top:10px}
+.net .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.net .ok{color:var(--green-d)} .net .err{color:var(--red-d)}
+.net-pill{position:fixed;z-index:80;bottom:6px;left:50%;transform:translateX(-50%);background:#16120c;color:#d7ffb0;border:2.5px solid #000;border-radius:999px;padding:3px 12px;font:900 12px var(--font-body);pointer-events:none;box-shadow:0 3px 0 rgba(0,0,0,.35)}
+.net-pill.bad{color:#ffb0a0}
+@media (max-width:760px){.net .opts{grid-template-columns:1fr}}
+</style>`);
+const netEl = el('div', 'modal net'); netEl.hidden = true; document.body.appendChild(netEl);
+const pill = el('div', 'net-pill'); pill.hidden = true; document.body.appendChild(pill);
+function netPill() {
+  pill.hidden = !NET.on;
+  if (!NET.on) return;
+  const ms = NET.rtt ? ` · ${NET.rtt} ms` : '', stale = performance.now() - NET.lastIn > 3500;
+  pill.textContent = `🌐 Online with your friend${ms}${stale ? ' · waiting…' : ''}`; pill.classList.toggle('bad', stale);
+}
+let netRoomOk = null;
+async function openNetPanel() {
+  netEl.hidden = false; netPanel();
+  if (netRoomOk === null) { netRoomOk = !!(await netRoom()); if (netEl._menu && !netEl.hidden) netPanel(); }
+}
+function netPanelRefresh() { if (!netEl.hidden) netPanel(); }
+function netPanel(msg) {
+  const card = el('div', 'card');
+  const head = el('div', 'flex items-start justify-between gap-3'), ht = el('div');
+  ht.appendChild(el('h1', null, 'Play online')); ht.appendChild(el('div', 'tag', 'Co-op (campaign or quick match) and Versus with a friend on another computer. One of you hosts, the other joins.'));
+  head.appendChild(ht); head.appendChild(btn('btn-wood btn-sm', 'Back', () => { netEl.hidden = true; })); card.appendChild(head);
+  if (NET.on) {
+    card.appendChild(el('div', 'step ok', `✓ Connected${NET.link && NET.link.kind === 'room' ? ' through the claude.ai room' : ' directly'}. You are ${NET.role === 'host' ? 'the host (Alpha)' : 'the guest (Bravo)'}.`));
+    if (NET.role === 'host') {
+      card.appendChild(el('p', 'note', 'Pick a game. Your friend\'s screen follows along.'));
+      const row = el('div', 'row');
+      row.appendChild(btn('btn-go', 'Co-op campaign', () => { netEl.hidden = true; openCoopCamp(); }));
+      row.appendChild(btn('btn-gold', 'Co-op quick match', () => { netEl.hidden = true; openPicker('coop'); ui.picker.hidden = false; }));
+      row.appendChild(btn('btn-wood', 'Versus', () => { netEl.hidden = true; openPicker('versus'); ui.picker.hidden = false; }));
+      card.appendChild(row);
+    } else card.appendChild(el('p', 'note', msg || 'Waiting for your friend to pick a game. It will open here by itself.'));
+    const row2 = el('div', 'row'); row2.appendChild(btn('btn-red btn-sm', 'Disconnect', () => { netClose('Disconnected'); netPanel(); })); card.appendChild(row2);
+  } else {
+    if (NET.lost) card.appendChild(el('div', 'step err', 'The last connection ended. Start a new one below.'));
+    const opts = el('div', 'opts');
+    // claude.ai rooms
+    const a = el('div', 'opt'); a.appendChild(el('h3', null, 'Room code'));
+    if (netRoomOk) {
+      a.appendChild(el('p', null, 'Fastest. Works here on claude.ai when your friend can open this same game link.'));
+      a.appendChild(btn('btn-go', 'Host a room', () => netHostRoom()));
+      const inp = el('input', 'code'); inp.maxLength = 5; inp.placeholder = 'CODE'; inp.setAttribute('aria-label', 'Room code'); a.appendChild(inp);
+      a.appendChild(btn('btn-gold', 'Join room', () => netJoinRoom(inp.value)));
+    } else a.appendChild(el('p', null, netRoomOk === null ? 'Checking…' : 'Room codes work on the claude.ai link of this game. Use invite codes here instead.'));
+    opts.appendChild(a);
+    // direct WebRTC
+    const b = el('div', 'opt'); b.appendChild(el('h3', null, 'Invite code'));
+    if (typeof RTCPeerConnection === 'function') {
+      b.appendChild(el('p', null, 'Works anywhere, no accounts. Swap two codes once (Discord, text, anything).'));
+      b.appendChild(btn('btn-go', 'Host', () => netHostRtc()));
+      b.appendChild(btn('btn-gold', 'Join with a code', () => netJoinRtc()));
+    } else b.appendChild(el('p', null, 'This browser does not support direct connections.'));
+    opts.appendChild(b);
+    card.appendChild(opts);
+    if (msg) card.appendChild(el('div', 'step', msg));
+  }
+  netEl.innerHTML = ''; netEl.appendChild(card); netEl.hidden = false; netEl._menu = !NET.on;
+}
+const ROOM_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+async function netHostRoom() {
+  netClose(); NET.role = 'host'; NET.lost = false;
+  const code = Array.from(crypto.getRandomValues(new Uint8Array(5)), x => ROOM_ABC[x % ROOM_ABC.length]).join('');
+  try { NET.link = await linkRoom(code, true); } catch (e) { netPanel('Could not open a room: ' + (e.message || e)); return; }
+  const card = el('div', 'card');
+  card.appendChild(el('h1', null, 'Your room')); card.appendChild(el('p', 'note', 'Tell your friend this code. They open this same game link, press Play online → Join room, and type it in.'));
+  card.appendChild(el('div', 'big-code', code));
+  card.appendChild(el('div', 'step', 'Waiting for your friend to join…'));
+  const row = el('div', 'row'); row.appendChild(btn('btn-wood btn-sm', 'Cancel', () => { netClose(); netPanel(); })); card.appendChild(row);
+  netEl.innerHTML = ''; netEl.appendChild(card); netEl._menu = false;
+}
+async function netJoinRoom(raw) {
+  const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 5) { netPanel('Room codes are 5 letters and numbers.'); return; }
+  netClose(); NET.role = 'guest'; NET.lost = false;
+  try { NET.link = await linkRoom(code, false); } catch (e) { netPanel('Could not join: ' + (e.message || e)); return; }
+  netPanel(`Joining room ${code}…`);
+  let n = 0; const iv = setInterval(() => { if (NET.on || !NET.link || ++n > 20) { clearInterval(iv); if (!NET.on && NET.link && n > 20) { netClose(); netPanel('No host answered in that room. Check the code and try again.'); } return; } netHello(); }, 700);
+}
+function codeBox(title, text) {
+  const wrap = el('div'); wrap.appendChild(el('div', 'step', title));
+  const ta = el('textarea'); ta.readOnly = true; ta.value = text; wrap.appendChild(ta);
+  const row = el('div', 'row'); row.appendChild(btn('btn-gold btn-sm', 'Copy', async () => { try { await navigator.clipboard.writeText(text); showToast('Copied!'); } catch { ta.focus(); ta.select(); showToast('Press Ctrl+C to copy'); } }));
+  wrap.appendChild(row); return wrap;
+}
+async function netHostRtc() {
+  netClose(); NET.role = 'host'; NET.lost = false;
+  netPanel('Making your invite code…'); netEl._menu = false;
+  let code; try { code = await rtcHost(); } catch (e) { netPanel('Could not start: ' + (e.message || e)); return; }
+  const card = el('div', 'card'); card.appendChild(el('h1', null, 'Host'));
+  card.appendChild(codeBox('1. Send this invite code to your friend', code));
+  card.appendChild(el('div', 'step', '2. Paste the reply code they send back'));
+  const ta = el('textarea'); ta.placeholder = 'Paste the reply code here'; card.appendChild(ta);
+  const st = el('div', 'note'); card.appendChild(st);
+  const row = el('div', 'row');
+  row.appendChild(btn('btn-go', 'Connect', async () => { st.textContent = 'Connecting…'; st.className = 'note'; try { await rtcAnswer(ta.value.trim()); st.textContent = 'Connecting… this can take a few seconds.'; } catch (e) { st.textContent = e.message || String(e); st.className = 'note err'; } }));
+  row.appendChild(btn('btn-wood btn-sm', 'Cancel', () => { netClose(); netPanel(); }));
+  card.appendChild(row); netEl.innerHTML = ''; netEl.appendChild(card); netEl._menu = false;
+}
+function netJoinRtc() {
+  netClose(); NET.role = 'guest'; NET.lost = false;
+  const card = el('div', 'card'); card.appendChild(el('h1', null, 'Join'));
+  card.appendChild(el('div', 'step', '1. Paste the invite code from your friend'));
+  const ta = el('textarea'); ta.placeholder = 'Paste the invite code here'; card.appendChild(ta);
+  const st = el('div', 'note'); card.appendChild(st);
+  const out = el('div'); card.appendChild(out);
+  const row = el('div', 'row');
+  row.appendChild(btn('btn-go', 'Make reply code', async () => {
+    st.textContent = 'Working…'; st.className = 'note';
+    try { const reply = await rtcJoin(ta.value.trim()); out.innerHTML = ''; out.appendChild(codeBox('2. Send this reply code back to the host', reply)); st.textContent = 'Once the host pastes it, you connect automatically.'; }
+    catch (e) { st.textContent = e.message || String(e); st.className = 'note err'; }
+  }));
+  row.appendChild(btn('btn-wood btn-sm', 'Cancel', () => { netClose(); netPanel(); }));
+  card.appendChild(row); netEl.innerHTML = ''; netEl.appendChild(card); netEl._menu = false;
+}
+netEl.addEventListener('click', ev => { if (ev.target === netEl) netEl.hidden = true; });
+window.addEventListener('keydown', ev => { if (!netEl.hidden && ev.key === 'Escape') { netEl.hidden = true; ev.stopImmediatePropagation(); } }, true);
+window.addEventListener('pagehide', () => { if (NET.on) netSend({ t: 'bye' }); });
+
+// ===== ways in: the co-op campaign screen and the versus setup get a "Play online" button =====
+const drawCoopCampNet = drawCoopCamp;
+drawCoopCamp = function () {
+  drawCoopCampNet();
+  const right = coopCampEl.querySelector('.cc-top > div:last-child');
+  if (right) right.insertBefore(btn(NET.on ? 'btn-go btn-sm' : 'btn-gem btn-sm', NET.on ? '🌐 Online ✓' : '🌐 Play online', () => { coopCampEl.hidden = true; openNetPanel(); }), right.children[1] || null);
+};
+const openVsSetupNet2 = openVsSetup;
+openVsSetup = function (mapIdx) {
+  openVsSetupNet2(mapIdx);
+  const head = vsSetupEl.querySelector('.card > div'); if (!head) return;
+  head.appendChild(btn(NET.on ? 'btn-go btn-sm' : 'btn-gem btn-sm', NET.on ? '🌐 Online ✓' : '🌐 Play online', () => { vsSetupEl.hidden = true; openNetPanel(); }));
+};
+// online games show who is where in the co-op panels
+const syncHudNet = syncHud;
+syncHud = function () {
+  syncHudNet();
+  if (!(S && S.net && S.coop && NET.on)) return;
+  for (let p = 0; p < 2; p++) {
+    const d = coopUi.dev[p]; if (!d) continue; const t = p === NET.me ? '🎮 You' : '🌐 Your friend'; if (d.textContent === t) continue;
+    d.textContent = t;
+    if (p !== NET.me) coopUi.keys[p].textContent = 'Playing on their own computer';
+    else coopUi.keys[p].insertAdjacentHTML('afterbegin', '<span></span><span>Online: both halves of your keyboard and any controller play you</span>');
+  }
+};
 
 function setView(v) {
   view = v;

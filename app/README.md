@@ -7,7 +7,7 @@ Ready-to-install builds are in `dist/`:
 | `OperationPhoenix.apk` | Android phones, tablets and Android TV / Google TV |
 | `com.operationphoenix.game_1.0.0_all.ipk` | LG TVs (webOS) |
 
-Both are the full game, fully offline. The Android app asks for **no permissions at all**, not even internet access. The game picks its controls automatically: touch on phones, remote or controller on a TV, mouse and keyboard on a computer. The buttons for whatever you're using are shown in the corner.
+Both are the full game, bundled offline. The only permission the Android app asks for is internet access, and it uses it only when you play online with a friend. The game picks its controls automatically: touch on phones, remote or controller on a TV, mouse and keyboard on a computer. The buttons for whatever you're using are shown in the corner.
 
 ## Install on Android or Android TV
 - **Phone or tablet:** copy the APK over, open it, and allow "Install unknown apps" for your file manager when asked.
@@ -24,11 +24,18 @@ Developer Mode sessions expire after a few days unless you press "Extend" in the
 ## Controllers
 Pair Xbox (or any standard) controllers over Bluetooth. In Co-op the first controller plays **Alpha** and the second plays **Bravo**. You can also play one controller and one keyboard. In Versus, controller 1 defends and controller 2 attacks.
 
+## Playing online with a friend
+Open **Battle modes → Co-op → 🌐 Play online**, or the same button on the Versus setup screen. One of you hosts and the other joins:
+- **Room code** (on the claude.ai link): the host gets a 5-letter code and the friend types it in. Your friend needs a claude.ai account, and you share the game with them as a *Contributor* or above.
+- **Invite code** (anywhere: the HTML file, the APK, the LG app): the host copies an invite code to the friend (over Discord, text, anything). The friend pastes it and sends back a reply code, and the host pastes that. It connects directly between your two computers with no server in the middle. Strict school or work networks can block this; home internet almost always works.
+
+The host runs the battle and picks the mission. Both players use their whole keyboard or any controller.
+
 ## Rebuilding
 After changing `../operation-phoenix.html`:
 - **Android:** `android/build.sh` (needs a JDK, python3, and on Ubuntu/Debian `apt install aapt dalvik-exchange zipalign apksigner android-sdk-platform-23`).
 - **LG webOS:** `webos/build.sh` (needs `npm install -g @webos-tools/cli`).
 
-`tools/make-www.py` turns the web build into the offline page both apps use. It inlines Tailwind (MIT licence in `vendor/`), drops web fonts, and sets a content policy that blocks every network request.
+`tools/make-www.py` turns the web build into the offline page both apps use. It inlines Tailwind (MIT licence in `vendor/`), drops web fonts, and sets a content policy that blocks every web request (fetches, images, sockets). Online play uses only a direct peer-to-peer connection, and only when you start one.
 
 **Signing key:** `android/build.sh` signs with `android/release.keystore` and creates one if it's missing. The key is deliberately not in git because this repo is public. Android only installs an update over an existing install when both are signed with the same key. A new key means uninstalling first, and that wipes your saves, so keep your keystore somewhere safe.
