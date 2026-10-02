@@ -2,3 +2,4 @@ app/android/build/
 app/webos/build/
 app/android/*.keystore
 *.keystore
+app/android/.cache/

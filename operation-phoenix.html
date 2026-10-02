@@ -858,7 +858,7 @@ body.touch .keys{display:none}
       </div>
       <div class="slot">
         <div class="shop-view">
-          <div class="slot-h">Build <small>tap a tower, then open ground</small></div>
+          <div class="slot-h">Build <small>pick one, then place it</small></div>
           <div class="shop" id="shop"></div>
         </div>
         <div class="info idle" id="info">
@@ -925,6 +925,9 @@ body.touch .keys{display:none}
    Sections: data · helpers & terrain · profile · audio & music · state ·
    waves · simulation · rendering · UI (command centre + console) · input · boot
    ========================================================================= */
+// older TV browsers (webOS 5, Chrome 68) are missing a couple of array helpers
+if (!Array.prototype.flatMap) Object.defineProperty(Array.prototype, 'flatMap', { configurable: true, writable: true, value(fn, t) { return [].concat(...this.map(fn, t)); } });
+if (!Array.prototype.flat) Object.defineProperty(Array.prototype, 'flat', { configurable: true, writable: true, value() { return [].concat(...this); } });
 // Off-screen sprite canvases stay in main memory. Hundreds of small sprites are drawn into each other every second;
 // if the browser put some on the graphics card it would have to copy pixels back from it each time, stalling every
 // frame. Canvases shown on the page keep the default (graphics card) path.
@@ -975,7 +978,7 @@ const TOWERS = {
       { cost: 240, dmg: 60, rate: 1.3,  range: 2.9, chains: 5, jump: 1.9 },
     ] },
   sniper: { name: 'Sniper Post', key: '7', role: 'Huge range, crits', unlock: 400, color: '#8a96a6',
-    blurb: 'Covers most of the map. Big single shots that ignore armor, with a chance to crit for triple damage.',
+    blurb: 'Covers most of the map. Big single shots that ignore armour, with a chance to crit for triple damage.',
     levels: [
       { cost: 110, dmg: 45,  rate: .45, range: 5.5, crit: .10 },
       { cost: 130, dmg: 80,  rate: .50, range: 6.5, crit: .15 },
@@ -1059,7 +1062,7 @@ const TOWER_ORDER = ['gun', 'minigun', 'frost', 'artillery', 'tesla', 'flame', '
 const BRANCHES = {
   gun: [
     { name: 'Shredder', color: '#ffb347', cost: 220, blurb: 'Four barrels and more than twice the fire rate.', mul: { rate: 2.2, dmg: .7 } },
-    { name: 'Heavy Cannon', color: '#d8493b', cost: 220, blurb: 'Huge, slow rounds that punch straight through armor.', mul: { dmg: 3.4, rate: .45 }, set: { pierceArmor: true } },
+    { name: 'Heavy Cannon', color: '#d8493b', cost: 220, blurb: 'Huge, slow rounds that punch straight through armour.', mul: { dmg: 3.4, rate: .45 }, set: { pierceArmor: true } },
   ],
   frost: [
     { name: 'Blizzard Array', color: '#9fe3ff', cost: 240, blurb: 'Four freezing beams at once and a deeper chill.', set: { beams: 4, slow: .6 }, mul: { dps: .8 } },
@@ -1183,7 +1186,7 @@ const MAPS = [
     pts: [[-1, 7], [3, 7], [3, 2], [8, 2], [8, 11], [13, 11], [13, 5], [18, 5]] },
   { id: 'magma', name: 'Magma Works', theme: 'volcano', diff: 'Hard', seed: 79, gold: 150, lives: 15, hpMul: 1.2, stars: 1.5,
     pts: [[-1, 6], [6, 6], [6, 2], [12, 2], [12, 10], [18, 10]] },
-  { id: 'coral', name: 'Harbor Docks', theme: 'tropical', diff: 'Medium', seed: 91, gold: 170, lives: 20, hpMul: 1, stars: 1.25,
+  { id: 'coral', name: 'Harbour Docks', theme: 'tropical', diff: 'Medium', seed: 91, gold: 170, lives: 20, hpMul: 1, stars: 1.25,
     pts: [[-1, 4], [6, 4], [6, 10], [12, 10], [12, 3], [18, 3], [18, 8]],
     water: [[7, 5, 11, 8], [15, 0, 15, 12], [0, 12, 19, 12], [0, 0, 2, 1]] }, // [c0, r0, c1, r1] rectangles of sea and lagoon
   { id: 'glacier', name: 'Ice Station', theme: 'winter', diff: 'Medium', seed: 103, gold: 170, lives: 20, hpMul: .95, stars: 1.25,
@@ -1310,7 +1313,7 @@ const DAILY_MODS = [
   { id: 'swift',    name: 'Rapid Assault',   desc: 'Hostiles move 25% faster',            apply: r => { r.speedMul *= 1.25; } },
   { id: 'thick',    name: 'Heavy Armor',     desc: '+35% hostile health, +20% money',      apply: r => { r.hpMul *= 1.35; r.goldMul *= 1.2; } },
   { id: 'purse',    name: 'Budget Cuts',     desc: 'Start with 35% less money',            apply: r => { r.startGold = Math.round(r.startGold * .65); } },
-  { id: 'shells',   name: 'Armored Column',  desc: 'APCs from wave 1, twice as many',     apply: r => { r.armoredFrom = 1; r.armoredW = 2; } },
+  { id: 'shells',   name: 'Armoured Column',  desc: 'APCs from wave 1, and twice as many',     apply: r => { r.armoredFrom = 1; r.armoredW = 2; } },
   { id: 'warlords', name: 'Goliath Call',    desc: 'A Goliath every 3 waves',             apply: r => { r.bossEvery = 3; } },
   { id: 'glass',    name: 'Damaged HQ',      desc: 'Half HQ HP, double wave bonus',       apply: r => { r.lives = Math.ceil(r.lives / 2); r.bonusMul = 2; } },
   { id: 'tide',     name: 'Field Hospital',  desc: 'Field Medics from wave 2',            apply: r => { r.healerFrom = 2; } },
@@ -1332,7 +1335,7 @@ const HEROES = {
   viper: { name: 'VIPER', kind: 'Offense specialist', head: 'balaclava', gear: 'rifle', blurb: 'Heavy weapons expert. If it moves, it gets shot. If it doesn\'t, it gets shot twice.',
     passive: 'MG Nests and Sniper Posts cost 15% less and hit 10% harder.',
     power: { name: 'Airstrike', desc: 'Calls a bombing run on a spot you pick, shredding everything there.', cd: 40, aim: true } },
-  anvil: { name: 'ANVIL', kind: 'Defense specialist', head: 'heavyhelm', gear: 'shield', blurb: 'Combat engineer. Builds walls faster than the Syndicate can knock them down.',
+  anvil: { name: 'ANVIL', kind: 'Defence specialist', head: 'heavyhelm', gear: 'shield', blurb: 'Combat engineer. Builds walls faster than the Syndicate can knock them down.',
     passive: 'HQ has 5 more HP and tower upgrades cost 10% less.',
     power: { name: 'Fortify', desc: 'Repairs 3 HQ HP and stuns every hostile for 2.5 seconds.', cd: 55, aim: false } },
   specter: { name: 'SPECTER', kind: 'Secret ops specialist', head: 'hood', gear: 'smg', blurb: 'Ghost operative. Hacks, sabotage and silence. You never see SPECTER coming.',
@@ -1394,7 +1397,7 @@ const TITLES = [
   { id: 'ghostbuster', name: 'Thermal Eye', color: '#9fb8ff', how: 'Eliminate 200 stealth units', check: p => p.stats.ghosts >= 200 },
   { id: 'w1', name: 'Woodland Campaign', color: '#5b7a3a', how: 'Liberate the Woodland Front', check: p => worldCleared(p, 0) },
   { id: 'w2', name: 'Arctic Campaign', color: '#6f95b8', how: 'Liberate the Arctic Outpost', check: p => worldCleared(p, 1) },
-  { id: 'w3', name: 'Island Campaign', color: '#2f9a8a', how: 'Liberate the Island Harbor', check: p => worldCleared(p, 2) },
+  { id: 'w3', name: 'Island Campaign', color: '#2f9a8a', how: 'Liberate the Island Harbour', check: p => worldCleared(p, 2) },
   { id: 'w4', name: 'Desert Campaign', color: '#c08a3a', how: 'Liberate the Desert Front', check: p => worldCleared(p, 3) },
   { id: 'w5', name: 'City Campaign', color: '#5a6a8a', how: 'Liberate Night City', check: p => worldCleared(p, 4) },
   { id: 'pipshero', name: 'Medal of Honor', color: '#ff7a1a', how: 'Rescue Echo and stop the Warden', check: p => worldCleared(p, 5) },
@@ -1446,7 +1449,7 @@ const TWISTS = {
   thrift:  { name: 'Budget Cuts', desc: 'You start with 30% less money.', apply: r => { r.startGold = Math.round(r.startGold * .7); } },
   limit:   { name: 'Skeleton Crew', desc: 'You can build at most 9 towers.', apply: r => { r.towerLimit = 9; } },
   fog:     { name: 'Smoke Screen', desc: 'Smoke hides everything away from your towers.', apply: r => { r.fog = true; } },
-  shells:  { name: 'Armored Column', desc: 'APCs from wave 1, and twice as many.', apply: r => { r.armoredFrom = 1; r.armoredW = 2; } },
+  shells:  { name: 'Armoured Column', desc: 'APCs from wave 1, and twice as many.', apply: r => { r.armoredFrom = 1; r.armoredW = 2; } },
   nosell:  { name: 'No Retreat', desc: 'Towers cannot be sold.', apply: r => { r.noSell = true; } },
   flyers:  { name: 'Drone Swarm', desc: 'Lots of drones. Bring towers that hit the air.', apply: r => { r.flyerFrom = 1; r.flyerW = 3; } },
   ghosts:  { name: 'Ghost Protocol', desc: 'Stealth units from wave 2. Cryo Turrets and Arc Coils expose them.', apply: r => { r.ghostFrom = 2; r.ghostW = 2.5; } },
@@ -1475,10 +1478,10 @@ const WORLDS = [
     seq: ['meadow', 'meadow', 'creek', 'meadow', 'creek', 'ridge', 'creek', 'meadow', 'ridge'],
     minis: [{ name: 'Sgt. Briggs', ab: 'summon' }, { name: 'Lt. Hollis', ab: 'shield' }, { name: 'Capt. Rook', ab: 'haste' }],
     twists: [null, null, null, 'swift', 'thrift', 'menders', 'limit', 'shells', 'flyers', null],
-    titles: ['First Contact', 'Tracks in the Mud', 'Sergeant Briggs', 'Rapid Assault', 'Budget Cuts', 'Lieutenant Hollis', 'Skeleton Crew', 'Armored Column', 'Captain Rook', 'Colonel Kragg'],
+    titles: ['First Contact', 'Tracks in the Mud', 'Sergeant Briggs', 'Rapid Assault', 'Budget Cuts', 'Lieutenant Hollis', 'Skeleton Crew', 'Armoured Column', 'Captain Rook', 'Colonel Kragg'],
     lines: ['P:They hit us hard and they took Echo. Hold this base, then we push.', 'S:Fresh tracks heading north, Commander. They\'re moving fast.', 'W:Sergeant Briggs will handle you. He always does.',
       'P:They\'re rushing the river ford. Keep them off the bridge.', 'P:Supply convoy got hit. We fight with what we\'ve got.', 'S:They brought medics. Take them out first or this never ends.',
-      'P:Half the squad is pinned down. Every tower counts.', 'S:Armored column inbound. Bring something with punch.', 'E:...Phoenix... drones... Rook is escorting me north...', 'P:Colonel Kragg holds the woods. Take him down and the front is ours.'] },
+      'P:Half the squad is pinned down. Every tower counts.', 'S:Armoured column inbound. Bring something with punch.', 'E:...Phoenix... drones... Rook is escorting me north...', 'P:Colonel Kragg holds the woods. Take him down and the front is ours.'] },
   { id: 'winter', name: 'Arctic Outpost', short: 'Arctic', theme: 'winter', maps: ['frost', 'glacier'], bossMap: 'glacier', boss: 'Major Volkov',
     minis: [{ name: 'Frostbite', ab: 'freeze' }, { name: 'Iceberg', ab: 'shield' }, { name: 'Whiteout', ab: 'blink' }],
     twists: [null, 'swift', 'flyers', 'limit', 'glass', 'fog', 'shells', 'nosell', 'rush', null],
@@ -1486,7 +1489,7 @@ const WORLDS = [
     lines: ['P:Echo\'s dog tags, frozen to a fence post. We\'re on the right trail.', 'S:Black ice on the pass. They\'re sliding in fast.', 'W:Frostbite jams anything that shoots. Enjoy the cold, Commander.',
       'P:The storm cut us off. Only a few builders made it.', 'S:HQ walls cracked in the freeze. Don\'t let anything through.', 'P:Iceberg runs a shield generator. Burn through it.',
       'S:Whiteout conditions and APCs in the snow.', 'P:No pulling back from here. Build it right the first time.', 'E:Phoenix... the Warden calls it Project Inferno... they\'re shipping me south...', 'P:Major Volkov holds the station. End this.'] },
-  { id: 'tropical', name: 'Island Harbor', short: 'Island', theme: 'tropical', maps: ['coral', 'reef'], bossMap: 'reef', boss: 'Commodore Vance',
+  { id: 'tropical', name: 'Island Harbour', short: 'Island', theme: 'tropical', maps: ['coral', 'reef'], bossMap: 'reef', boss: 'Commodore Vance',
     minis: [{ name: 'Barracuda', ab: 'shield' }, { name: 'Kestrel', ab: 'summonFly' }, { name: 'Tidewater', ab: 'heal' }],
     twists: [null, 'flyers', null, 'bounty', 'menders', 'limit', 'swift', 'fog', 'rush', null],
     titles: ['Beachhead', 'Drone Swarm', 'Barracuda', 'High Value Targets', 'Field Hospital', 'Kestrel', 'Rapid Tide', 'Sea Fog', 'Tidewater', 'Commodore Vance'],
@@ -1496,7 +1499,7 @@ const WORLDS = [
   { id: 'desert', name: 'Desert Front', short: 'Desert', theme: 'desert', maps: ['dunes', 'oasis'], bossMap: 'oasis', boss: 'General Raze',
     minis: [{ name: 'Sidewinder', ab: 'blink' }, { name: 'Mirage', ab: 'vanish' }, { name: 'Scorpion', ab: 'summon' }],
     twists: [null, 'shells', 'fog', 'swift', 'flyers', 'nosell', 'bounty', 'glass', 'limit', null],
-    titles: ['Dust Road', 'Armored Sands', 'Sidewinder', 'Sandstorm Run', 'Hawks Overhead', 'Mirage', 'Oil Money', 'Sun-Baked Walls', 'Scorpion', 'General Raze'],
+    titles: ['Dust Road', 'Armoured Sands', 'Sidewinder', 'Sandstorm Run', 'Hawks Overhead', 'Mirage', 'Oil Money', 'Sun-Baked Walls', 'Scorpion', 'General Raze'],
     lines: ['P:We recovered a drive from the wreck. Inferno schematics. It\'s a cannon. A big one.', 'S:APCs love open desert. Dig in.', 'W:Sidewinder strikes before you see it.',
       'P:Sandstorm on the road. They\'re using it for cover.', 'S:Drones circling the oasis.', 'W:Mirage? You won\'t even know she\'s there.',
       'P:Oil money buys tougher troops. Big bounties though.', 'S:The heat cracked HQ\'s walls. Careful.', 'P:Only nine towers\' worth of supplies. Make them count.', 'P:General Raze holds the oasis. Break him.'] },
@@ -1549,7 +1552,7 @@ const STORY = {
       say: [{ i: 0, t: 'Syndicate armour in the snow. They know we\'re coming.' }] },
   ],
   intro3: [
-    { bg: 'tropical', cap: 'Region 3 · Island Harbor', cast: [{ k: 'phoenix', x: .38, pose: 'point' }, { k: 'item', item: 'radio', x: .7 }],
+    { bg: 'tropical', cap: 'Region 3 · Island Harbour', cast: [{ k: 'phoenix', x: .38, pose: 'point' }, { k: 'item', item: 'radio', x: .7 }],
       say: [{ i: 0, t: 'A distress ping on Echo\'s private channel, coming from the docks.' }] },
   ],
   intro4: [
@@ -1596,6 +1599,57 @@ const RADIO = {
   stomp: ['Stomp! Towers knocked offline!'],
   power: ['Ability ready, Commander.'],
 };
+// ---------- v12 data: three new towers and the twin-entrance maps ----------
+// New towers go on the end of TOWER_ORDER so the indices older code (and online play) already uses stay put.
+Object.assign(TOWERS, {
+  orbital: { name: 'Orbital Laser Uplink', key: 'O', role: 'Calls a laser from orbit', unlock: 9000, gems: 450, color: '#ff5a4a', elite: true,
+    blurb: 'A satellite uplink. It paints the toughest hostile in range, and a moment later a laser from orbit burns everything around it. Hits drones too. Very expensive, very worth it.',
+    levels: [
+      { cost: 500, dmg: 1200, rate: .20, range: 7.0, splash: 1.1, warn: .75 },
+      { cost: 650, dmg: 2100, rate: .22, range: 8.0, splash: 1.25, warn: .65 },
+      { cost: 900, dmg: 3600, rate: .25, range: 9.0, splash: 1.4, warn: .55 },
+    ] },
+  hangar: { name: 'Drone Hangar', key: 'H', role: 'Launches attack drones', unlock: 1800, color: '#5a8ad8',
+    blurb: 'Sends out little attack drones that fly to hostiles and shoot from above. They can reach both ground units and drones anywhere in range.',
+    levels: [
+      { cost: 260, drones: 2, dmg: 12, rate: 2.4, range: 3.2 },
+      { cost: 240, drones: 3, dmg: 17, rate: 2.6, range: 3.5 },
+      { cost: 380, drones: 4, dmg: 24, rate: 2.8, range: 3.8 },
+    ] },
+  mines: { name: 'Minelayer', key: 'L', role: 'Lays mines on the road', unlock: 1300, color: '#c9a03a',
+    blurb: 'Plants mines on the road in range. Anything that walks over one gets blown up, along with everything near it. Ground only.',
+    levels: [
+      { cost: 180, dmg: 80,  rate: .45, max: 6,  splash: .9,  range: 2.6 },
+      { cost: 170, dmg: 140, rate: .50, max: 8,  splash: 1.0, range: 2.9 },
+      { cost: 280, dmg: 240, rate: .60, max: 10, splash: 1.15, range: 3.2 },
+    ] },
+});
+TOWER_ORDER.push('orbital', 'hangar', 'mines');
+Object.assign(BRANCHES, {
+  orbital: [
+    { name: 'Sun Lance', color: '#ffd23f', cost: 1400, blurb: 'Holds the laser down and drags it along the road, setting everything on fire.', mul: { dmg: .55 }, set: { lance: 1.6, burn: 70 } },
+    { name: 'Kill Sat', color: '#ff4f7a', cost: 1400, blurb: 'Three satellites. Every strike hits the three toughest hostiles at once.', mul: { dmg: .8 }, set: { strikes: 3 } },
+  ],
+  hangar: [
+    { name: 'Strike Wing', color: '#ff8a3a', cost: 320, blurb: 'Drones swap their guns for mini-missiles that blast small groups.', mul: { dmg: 2.4, rate: .5 }, set: { missile: .8 } },
+    { name: 'Swarm Bay', color: '#7fe0ff', cost: 320, blurb: 'Twice as many drones, each a little lighter on firepower.', mul: { drones: 2, dmg: .65 } },
+  ],
+  mines: [
+    { name: 'Cluster Mines', color: '#ffb347', cost: 280, blurb: 'Every blast throws out three bomblets that go off a moment later.', set: { cluster: 3 } },
+    { name: 'Cryo Mines', color: '#7fd3f5', cost: 280, blurb: 'Blasts freeze everything they hit for 1.5 seconds.', mul: { dmg: .75 }, set: { freeze: 1.5 } },
+  ],
+});
+Object.assign(AIR_TOWERS, { orbital: 1, hangar: 1 });
+
+// Twin-entrance maps: a second road joins the first on the way to HQ, and the waves split between them.
+MAPS.push(
+  { id: 'twin', name: 'Twin Gates', theme: 'meadow', diff: 'Medium', seed: 61, gold: 190, lives: 20, hpMul: 1, stars: 1.3, split: true,
+    pts: [[-1, 2], [9, 2], [9, 6], [16, 6], [16, 9]], lanes: [[[-1, 10], [12, 10], [12, 7], [12, 6]]] },
+  { id: 'pincer', name: 'Pincer Pass', theme: 'desert', diff: 'Hard', seed: 67, gold: 200, lives: 18, hpMul: 1.1, stars: 1.5, split: true,
+    pts: [[-1, 3], [6, 3], [6, 9], [10, 9]], lanes: [[[20, 3], [14, 3], [14, 9], [10, 9]]] },
+  { id: 'crossfire', name: 'Crossfire', theme: 'winter', diff: 'Medium', seed: 73, gold: 190, lives: 20, hpMul: 1, stars: 1.3, split: true,
+    pts: [[-1, 9], [5, 9], [5, 4], [10, 4], [10, 7]], lanes: [[[15, -1], [15, 7], [10, 7]]] },
+);
 // ---------- helpers ----------
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -1647,13 +1701,24 @@ function buildMap(def) {
   for (let i = 0; i < def.pts.length - 1; i++) {
     let [c, r] = def.pts[i]; const [c2, r2] = def.pts[i + 1];
     const sc = Math.sign(c2 - c), sr = Math.sign(r2 - r);
-    for (;;) { if (inB(c, r)) grid[r][c] = 1; if (c === c2 && r === r2) break; c += sc; r += sr; }
+    for (let n = 0; n < 200; n++) { if (inB(c, r)) grid[r][c] = 1; if (c === c2 && r === r2) break; c += sc; r += sr; }
   }
   // water can't be built on; where the road crosses it, it becomes a bridge
   const bridges = [];
   for (const [c0, r0, c1, r1] of def.water || []) for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
     if (!inB(c, r)) continue;
     if (grid[r][c] === 1) bridges.push({ c, r }); else grid[r][c] = 4;
+  }
+  // extra entrances: each lane is drawn from its own edge and joins the main road somewhere
+  const lanePts = [];
+  for (const L of Array.isArray(def.lanes) ? def.lanes.slice(0, 8) : []) {
+    if (!Array.isArray(L) || L.length < 2) continue;
+    for (let i = 0; i < L.length - 1; i++) {
+      let [c, r] = L[i]; const [c2, r2] = L[i + 1];
+      const sc = Math.sign(c2 - c), sr = Math.sign(r2 - r);
+      for (let n = 0; n < 80; n++) { if (inB(c, r)) grid[r][c] = 1; if (c === c2 && r === r2) break; c += sc; r += sr; }
+    }
+    lanePts.push(L);
   }
   const [bc, br] = def.pts[def.pts.length - 1];
   for (let r = br - 1; r <= br + 1; r++) for (let c = bc - 1; c <= bc + 1; c++) if (inB(c, r) && !grid[r][c]) grid[r][c] = 3;
@@ -1677,9 +1742,30 @@ function buildMap(def) {
     }
   }
   const map = { def, pts, segs, total, grid, decor, bridges, base: pts[pts.length - 1], spawnRow: sr0 };
+  if (lanePts.length) map.lanes = [map, ...lanePts.map(L => buildLane(map, L))];
   if (typeof makeDetour === 'function') makeDetour(map);
   return map;
 }
+// A lane runs from its own entrance to where it meets the main road, then follows the main road to HQ.
+function buildLane(map, L) {
+  const own = L.map(([c, r]) => ({ x: (c + .5) * T, y: (r + .5) * T })), j = own[own.length - 1];
+  let best = 0, bd = Infinity;
+  for (const s of map.segs) {
+    const t = clamp((j.x - s.ax) * s.dx + (j.y - s.ay) * s.dy, 0, s.len), x = s.ax + s.dx * t, y = s.ay + s.dy * t, dd = (x - j.x) ** 2 + (y - j.y) ** 2;
+    if (dd < bd) { bd = dd; best = s.start + t; }
+  }
+  const pts = own.slice(), jp = pointAt(map, best);
+  if (Math.hypot(jp.x - j.x, jp.y - j.y) > 1) pts.push({ x: jp.x, y: jp.y });
+  for (let i = 1; i < map.pts.length; i++) if (map.segs[i - 1].start + map.segs[i - 1].len > best + 1) pts.push(map.pts[i]);
+  const segs = []; let total = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1], len = Math.hypot(b.x - a.x, b.y - a.y); if (len < .5) continue;
+    segs.push({ ax: a.x, ay: a.y, dx: (b.x - a.x) / len, dy: (b.y - a.y) / len, len, start: total });
+    total += len;
+  }
+  return { pts, segs, total, base: map.base, own, join: best, ownLen: total - (map.total - best) };
+}
+const pathOf = e => (e && e.lane && S.map.lanes && S.map.lanes[e.lane]) || S.map;
 function pointAt(map, dist) {
   const segs = map.segs;
   if (dist >= map.total) { const s = segs[segs.length - 1]; return { x: map.base.x, y: map.base.y, dx: s.dx, dy: s.dy }; }
@@ -2863,7 +2949,8 @@ function spawnEnemy(type, dist = 0, spec = null) {
     shield: 0, shieldMax: 0, phase: 0, abil: mini && S.rules.mini ? [S.rules.mini.ab] : [], abilT: 5, plan: king ? S.rules.bossPlan : null,
     enr: 1, hasteT: 0, vanish: 0, revealed: false, mini,
   };
-  if (def.fly) { const f = flyLine(); e.x = f.sx; e.y = f.sy; } else { const p = pointAt(S.map, dist); e.x = p.x; e.y = p.y; }
+  if (!def.fly && S.map.lanes) { const n = S.map.lanes.length; e.lane = S.forceLane != null ? clamp(S.forceLane | 0, 0, n - 1) : (S.laneRR = ((S.laneRR | 0) + 1) % n); }
+  if (def.fly) { const f = flyLine(); e.x = f.sx; e.y = f.sy; } else { const p = pointAt(pathOf(e), dist); e.x = p.x; e.y = p.y; }
   S.enemies.push(e);
   if (S.mode !== 'demo') {
     if (king) { addBanner(`${e.king} approaches!`, 'The boss of this land. Everything you have!', '#ff9a7a'); Sfx.play('boss'); addShake(10); }
@@ -2875,6 +2962,10 @@ function spawnEnemy(type, dist = 0, spec = null) {
 }
 // Bosses fight back: phases at 66% and 33% health, plus a special move every few seconds.
 function useAbility(e, ab) {
+  const fl = S.forceLane; S.forceLane = e.lane || 0;
+  try { useAbilityRaw(e, ab); } finally { S.forceLane = fl; }
+}
+function useAbilityRaw(e, ab) {
   const say = (e.king || e.def.name) + ' ' + ABILITY_TEXT[ab];
   if (e.plan) addBanner(say, '', '#ffb08a'); else addText(e.x, e.y - e.def.r * T * e.big - 26, ABILITY_TEXT[ab], '#ffd08a', 15);
   switch (ab) {
@@ -2892,8 +2983,8 @@ function useAbility(e, ab) {
     case 'heal': e.hp = Math.min(e.maxHp, e.hp + e.maxHp * .15); for (let k = 0; k < 8; k++) S.particles.push({ x: e.x + (Math.random() - .5) * 30, y: e.y - 8, vx: 0, vy: -40, life: .8, max: .8, size: 5, color: '#4fe07a', kind: 'plus' }); break;
     case 'blink': {
       burst(e.x, e.y, '#c9b0ff', 10, .8);
-      e.dist = Math.min(S.map.total - T * 2, e.dist + 2.5 * T); e.detour = null;
-      const p = pointAt(S.map, e.dist); e.x = p.x; e.y = p.y; burst(e.x, e.y, '#c9b0ff', 10, .8); break;
+      e.dist = Math.min(pathOf(e).total - T * 2, e.dist + 2.5 * T); e.detour = null;
+      const p = pointAt(pathOf(e), e.dist); e.x = p.x; e.y = p.y; burst(e.x, e.y, '#c9b0ff', 10, .8); break;
     }
     case 'vanish': e.vanish = 3; break;
   }
@@ -3017,7 +3108,7 @@ function updateEnemies(dt) {
   for (const e of S.enemies) {
     if (!e.alive) continue;
     if (e.def.ghost) e.revealed = S.empT > 0 || revealers.some(t => d2(t.x, t.y, e.x, e.y) <= (towerStats(t).range * T) ** 2) || mapLamps(S.map).some(l => d2(l.x, l.y, e.x, e.y) < (1.5 * T) ** 2);
-    if (e.def.boss && S.mode === 'playing' && !(e.mini && S.rules.gentleMini) && (e.stompT = (e.stompT ?? 6 + Math.random() * 3) - dt) <= 0) { e.stompT = (e.king ? 7 : 9.5) + Math.random() * 3; stomp(e); }
+    if (e.def.boss && S.mode === 'playing' && !(e.mini && S.rules.gentleMini) && (e.stompT = (e.stompT != null ? e.stompT : 6 + Math.random() * 3) - dt) <= 0) { e.stompT = (e.king ? 7 : 9.5) + Math.random() * 3; stomp(e); }
     if (e.vanish > 0) e.vanish -= dt;
     if (e.hasteT > 0) e.hasteT -= dt;
     if (e.abil.length || e.plan) bossThink(e, dt);
@@ -3041,7 +3132,7 @@ function updateEnemies(dt) {
     } else if (!(e.def.sabotage && S.mode === 'playing' && updateSaboteur(e, dt))) {
       const step = e.speed * (1 - e.slow) * e.enr * (e.hasteT > 0 ? 1.4 : 1) * (S.arena === 'winter' && !e.def.fly ? 1.2 : 1) * (1 - floodSlow(e)) * dt, alt = S.map.alt;
       if (e.detour != null) { e.detour += step; if (e.detour >= alt.len) { e.dist = alt.join + (e.detour - alt.len); e.detour = null; } else e.dist = alt.fork + (alt.join - alt.fork) * e.detour / alt.len; }
-      else { const nd = e.dist + step; if (S.switchOn && alt && !e.def.fly && e.dist < alt.fork && nd >= alt.fork) { e.detour = nd - alt.fork; e.dist = alt.fork; } else e.dist = nd; }
+      else { const nd = e.dist + step; if (S.switchOn && alt && !e.def.fly && !e.lane && e.dist < alt.fork && nd >= alt.fork) { e.detour = nd - alt.fork; e.dist = alt.fork; } else e.dist = nd; }
     }
     if (e.def.fly) {
       // flyers ignore the road and head straight for the castle
@@ -3050,9 +3141,10 @@ function updateEnemies(dt) {
       e.prog = k; e.x = lerp(f.sx, S.map.base.x, k); e.y = lerp(f.sy, S.map.base.y, k); e.dirx = (S.map.base.x - f.sx) / f.len; e.diry = (S.map.base.y - f.sy) / f.len;
       continue;
     }
-    if (e.dist >= S.map.total) { reachBase(e); continue; }
-    e.prog = e.dist / S.map.total;
-    const p = e.detour != null ? detourPoint(S.map.alt, e.detour) : pointAt(S.map, e.dist); e.x = p.x; e.y = p.y; e.dirx = p.dx; e.diry = p.dy;
+    const PM = pathOf(e);
+    if (e.dist >= PM.total) { reachBase(e); continue; }
+    e.prog = e.dist / PM.total;
+    const p = e.detour != null ? detourPoint(S.map.alt, e.detour) : pointAt(PM, e.dist); e.x = p.x; e.y = p.y; e.dirx = p.dx; e.diry = p.dy;
     if (e.def.boss && !e.coverDone && e.hp < e.maxHp * .5) { e.coverDone = true; e.coverT = 2.2; addText(e.x, e.y - 50, 'TAKING COVER!', '#ffd08a', 15); }
     if (e.coverT > 0) e.coverT -= dt;
     if (e.def.heal) {
@@ -3261,6 +3353,7 @@ function updateTowers(dt) {
     switch (tw.type) {
       case 'farm': case 'dj': case 'commander': tw.charge = (tw.charge + dt) % 1; continue;
       case 'riot': updateRiot(tw, L, dt); continue;
+      case 'orbital': case 'hangar': case 'mines': updateTowerV12(tw, L, range, dt); continue;
       case 'zed': {
         if (tw.zedT == null) tw.zedT = 4;
         tw.zedT -= dt; tw.charge = 1 - clamp(tw.zedT / L.every, 0, 1);
@@ -3330,7 +3423,7 @@ function updateTowers(dt) {
         if (!tg || tw.cool > 0) continue;
         tw.cool = 1 / L.rate;
         // open the hole just ahead of the target so the crowd walks into it
-        const hd = Math.min(S.map.total - T, tg.dist + tg.speed * .35), p = pointAt(S.map, hd);
+        const PM = pathOf(tg), hd = Math.min(PM.total - T, tg.dist + tg.speed * .35), p = pointAt(PM, hd);
         S.holes.push({ x: p.x, y: p.y, r: L.radius * T, life: L.life, max: L.life, pull: L.pull * T, dps: L.dps, tw });
         tw.flash = .35; Sfx.play('gravity'); addShake(2);
         continue;
@@ -3357,7 +3450,7 @@ function updateTowers(dt) {
       tw.flash = .05; tw.recoil = .6; if (tw.shot % 2 === 0 || !L.dual) Sfx.play('minigun');
     } else if (tw.type === 'artillery') {
       const dist = Math.hypot(tg.x - tw.x, tg.y - tw.y), dur = clamp(dist / (T * 5.5), .5, .95);
-      const p = pointAt(S.map, tg.dist + tg.speed * (1 - tg.slow) * dur);
+      const p = pointAt(pathOf(tg), tg.dist + tg.speed * (1 - tg.slow) * dur);
       const twin = L.twin && tw.branch == null;
       for (const o of twin ? [-1, 1] : [0])
         S.shells.push({ sx: tw.x + ca * 16 - sa * o * 5, sy: tw.y - 6 + sa * 16 + ca * o * 5, tx: p.x - sa * o * 9, ty: p.y + ca * o * 9, t: o > 0 ? -.06 : 0, dur, dmg: L.dmg * (twin ? .6 : 1), splash: L.splash * T, tw, cluster: L.cluster, stun: L.stun, big: tw.branch === 1 });
@@ -3698,7 +3791,7 @@ function beginRun(mode, mapIdx, opts) {
   const wasRun = S && S.mode !== 'demo';
   const keep = wasRun ? { speed: S.speed, auto: S.auto } : { speed: 1, auto: false };
   S = newState(mapIdx, makeRules(mode, mapIdx, false, opts.level, opts.hard), 'playing');
-  S.level = opts.level ?? null; S.hard = !!opts.hard; S.speed = keep.speed; S.auto = keep.auto;
+  S.level = opts.level != null ? opts.level : null; S.hard = !!opts.hard; S.speed = keep.speed; S.auto = keep.auto;
   S.prevBest = getBest();
   if (opts.resume) applySave(opts.resume);
   if (!S.hu) heroSpawn();
@@ -4206,7 +4299,7 @@ function damageDecor(x, y, r, n = 1) {
   let changed = false;
   for (const d of S.map.decor) {
     if (d.gone || d.c == null || d2(decorX(d), decorY(d), x, y) > r * r) continue;
-    d.hp = (d.hp ?? (DECOR_HP[d.kind] || 2)) - n;
+    d.hp = (d.hp != null ? d.hp : (DECOR_HP[d.kind] || 2)) - n;
     if (d.hp <= 0) {
       d.gone = true; changed = true;
       if (S.map.grid[d.r][d.c] === 2) S.map.grid[d.r][d.c] = 0;
@@ -6838,7 +6931,7 @@ const AMB_BEDS = {
 };
 const Amb = {
   key: null, beds: [], gain: null, t: 1, gust: 0,
-  vol() { return .6 * (profile.settings.amb ?? .6); },
+  vol() { return .6 * (profile.settings.amb != null ? profile.settings.amb : .6); },
   ok() { return Sfx.ctx && Sfx.ctx.state === 'running' && this.vol() > 0; },
   update(dt) {
     if (!Sfx.ctx || !profile) return;
@@ -6904,7 +6997,7 @@ function normV10(v) {
     lb: ob(o.lb), ghost: ob(o.ghost),
     finish: { owned: Object.assign(ob(fin.owned), { none: true }), active: typeof fin.active === 'string' ? fin.active : 'none' },
     weekly: { wk: wk.wk | 0, done: !!wk.done, clears: wk.clears | 0 },
-    vsBest: +o.vsBest || 0, tips: o.tips | 0, coop: ob(o.coop),
+    vsBest: +o.vsBest || 0, tips: o.tips | 0, coop: ob(o.coop), v12: ob(o.v12),
   };
 }
 profile.v10 = normV10(profile.v10);
@@ -7176,7 +7269,7 @@ function zombieIcon(type, size = 40) {
 
 // ===== boss intros: a quick zoom, slow motion and a name card =====
 function startCine(e) {
-  if (!S || S.mode !== 'playing' || REDUCED || S.anim - (S.cineAt ?? -99) < 18) return;
+  if (!S || S.mode !== 'playing' || REDUCED || S.anim - (S.cineAt != null ? S.cineAt : -99) < 18) return;
   S.cineAt = S.anim;
   const z = e.zed, name = e.king || (z ? 'Abomination' : 'Goliath');
   S.cine = { e, t: 0, dur: 2.8, name: name.toUpperCase(), sub: e.king && !e.mini ? 'Commander of this region' : e.mini ? 'Mini-boss with a nasty trick' : z ? 'Stitched-together horror' : 'Heavy assault walker', z };
@@ -7473,7 +7566,7 @@ chatter = function (first) { if (S && S.rules.versus) return; chatterV9(first); 
 // ===== leaderboards and the ghost of your best run =====
 const LB_MODES = ['classic', 'endless', 'bossrush', 'weekly'];
 function lbAdd(key, entry, cmp) { const L = V10().lb[key] || (V10().lb[key] = []); L.push(entry); L.sort(cmp); L.length = Math.min(L.length, 5); }
-function glog(op, tw, b) { if (S && S.glog && S.mode === 'playing' && !S.rules.versus && S.glog.length < 900) S.glog.push([S.wave, op, tw.type, tw.c, tw.r, b ?? null]); }
+function glog(op, tw, b) { if (S && S.glog && S.mode === 'playing' && !S.rules.versus && S.glog.length < 900) S.glog.push([S.wave, op, tw.type, tw.c, tw.r, b != null ? b : null]); }
 const finalizeRunV9 = finalizeRun;
 finalizeRun = function () {
   if (!S || S.mode === 'demo' || S.finalized) return finalizeRunV9();
@@ -7819,7 +7912,7 @@ const drawGateV10 = drawGate;
 drawGate = function (g, map, th) { if (S && map === S.map) return; drawGateModel(g, map, 0, 0); };
 function drawLiveGate(g) {
   if (!S || !S.map) return;
-  const want = S.anim - (S.gateT ?? -99) < 1.4 ? 1 : 0;
+  const want = S.anim - (S.gateT != null ? S.gateT : -99) < 1.4 ? 1 : 0;
   S.gateOpen = (S.gateOpen || 0) + (want - (S.gateOpen || 0)) * Math.min(1, (S.gateDt || .016) * (want ? 6 : 2));
   const y = (S.map.spawnRow + .5) * T, op = Math.round(S.gateOpen * 10) / 10;
   stack3D(g, [-6, y - 92, 100, y + 50], v9Lite() ? 1 : 6, '#2e3236', a => drawGateModel(a, S.map, S.anim, op), S.map, `gate|${Math.floor(S.anim * V9.tick * .35)}|${op}|${S.vs ? S.vs.faction : ''}`);
@@ -10740,7 +10833,7 @@ const COOP_TWISTS = [
   { id: 'swarm', name: 'Drone swarm', desc: 'Extra drones buzzing in', ok: () => S.wave >= 3, apply: () => coopAdd('flyer', 4 + (S.wave / 3 | 0)) },
   { id: 'night', name: 'Night raid', desc: 'Lights out for this wave', ok: () => S.wave >= 2, apply: () => { S.todT = Math.floor(S.tod) + .78; } },
   { id: 'convoy', name: 'Supply convoy', desc: 'Gold trucks rolling through. Catch them!', ok: () => S.wave >= 2, apply: () => coopAdd('golden', S.wave > 12 ? 3 : 2) },
-  { id: 'armor', name: 'Armored push', desc: 'A column of APCs', ok: () => S.wave >= 4, apply: () => coopAdd('armored', 2 + (S.wave / 5 | 0)) },
+  { id: 'armor', name: 'Armoured push', desc: 'A column of APCs', ok: () => S.wave >= 4, apply: () => coopAdd('armored', 2 + (S.wave / 5 | 0)) },
   { id: 'storm', name: 'Thunderstorm', desc: 'Lightning over the battlefield', ok: () => !['desert', 'volcano'].includes(S.map.def.theme), apply: () => { S.weather = 'rain'; S.wind = WIND.rain; S.coop.storm = true; } },
   { id: 'rush', name: 'Rush hour', desc: 'Raider bikes at full throttle', ok: () => S.wave >= 2, apply: () => coopAdd('fast', 5 + (S.wave / 2 | 0)) },
 ];
@@ -11053,7 +11146,7 @@ window.addEventListener('keydown', ev => {
 function coopAssignPads() {
   const C = S && S.coop; if (!C) return;
   const ids = padsNow().map(p => p.index).sort((a, b) => a - b);
-  C.pads = [ids[0] ?? null, ids[1] ?? null];
+  C.pads = [ids[0] != null ? ids[0] : null, ids[1] != null ? ids[1] : null];
 }
 window.addEventListener('gamepadconnected', () => { if (S && S.coop) coopAssignPads(); });
 window.addEventListener('gamepaddisconnected', () => { if (S && S.coop) coopAssignPads(); });
@@ -11352,7 +11445,7 @@ function openCoopLobby(mapIdx, mission) {
   lobDraw();
 }
 function closeCoopLobby() { coopLobbyEl.hidden = true; }
-const lobPads = () => { const ids = padsNow().map(p => p.index).sort((a, b) => a - b); return [ids[0] ?? null, ids[1] ?? null]; };
+const lobPads = () => { const ids = padsNow().map(p => p.index).sort((a, b) => a - b); return [ids[0] != null ? ids[0] : null, ids[1] != null ? ids[1] : null]; };
 function lobDraw() {
   const pads = lobPads();
   for (let p = 0; p < 2; p++) {
@@ -12114,9 +12207,9 @@ function sniffAudio(bytes) {
 }
 // Names are shown as plain text only; strip control and direction-override characters and keep them short.
 function safeText(s, max = 60) {
-  return String(s ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(s != null ? s : '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
-const esc = s => String(s ?? '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' })[ch]);
+const esc = s => String(s != null ? s : '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' })[ch]);
 class TrackError extends Error {}
 async function vetTrack(bytes) {
   if (!(bytes instanceof ArrayBuffer) || bytes.byteLength < 64) throw new TrackError("That file is empty or too small to be a song.");
@@ -12422,6 +12515,1288 @@ frame = function (now) {
   // a deliberately calmer frame rate must not be mistaken for a slow machine
   if (throttled || hidden) { ui.ft = keepFt; ui.ftT = keepFtT; }
 };
+// ---------- v12 towers: Orbital Laser Uplink, Drone Hangar and Minelayer ----------
+// Orbital: paints the toughest hostile in range; after a short warning a laser from orbit burns everything around it.
+// Hangar: little attack drones that fly out to hostiles (ground or air) and shoot from above.
+// Minelayer: lobs mines onto the road in range; the first ground hostile to step on one sets it off.
+const V12 = { roadKey: new WeakMap() };
+TW_ICON.orbital = '☄'; TW_ICON.hangar = 'DR'; TW_ICON.mines = 'MN';
+HEAD_R.orbital = 58; HEAD_R.hangar = 50; HEAD_R.mines = 48;
+
+// ----- sounds -----
+const sfxPlayV11 = Sfx.play.bind(Sfx);
+Sfx.play = function (name, ui = false) {
+  const own = { orbCharge: 1, orbFire: 1, drone: 1, mineSet: 1, missile: 1 };
+  if (!own[name]) return sfxPlayV11(name, ui);
+  if (!(profile.settings.sfx > 0) || !this.ctx || this.ctx.state !== 'running') return;
+  if (!ui && S && S.mode === 'demo') return;
+  const now = performance.now(), gap = { orbCharge: 300, orbFire: 150, drone: 70, mineSet: 120, missile: 90 }[name];
+  if (now - (this.last[name] || 0) < gap) return; this.last[name] = now;
+  const v = 1 + (Math.random() - .5) * .1;
+  switch (name) {
+    case 'orbCharge': this.tone(260 * v, 1900, .7, .05, 'sine', 0, { rev: .4 }); this.tone(520 * v, 3800, .7, .02, 'triangle', .05); this.noise(.6, .03, 800, 6000, 0, { type: 'bandpass', q: 3 }); break;
+    case 'orbFire': this.noise(.9, .32, 9000, 90, 0, { rev: .5 }); this.tone(2600, 140, .5, .07, 'sawtooth', 0, { det: 30, rev: .4 }); this.thump(70, .7, .5); this.thump(45, .9, .35, .08); break;
+    case 'drone': this.tone(1900 * v, 1150, .05, .028, 'square'); break;
+    case 'missile': this.noise(.22, .07, 3000 * v, 600, 0, { type: 'bandpass', q: 1.2 }); this.tone(700 * v, 1400, .18, .025, 'sawtooth'); break;
+    case 'mineSet': this.tone(1100 * v, 700, .05, .05, 'triangle'); this.thump(180, .08, .12, .02); this.tone(1600, 1600, .03, .03, 'square', .12); break;
+  }
+};
+
+// ----- simulation -----
+const v12List = k => S[k] || (S[k] = []);
+function updateTowerV12(tw, L, range, dt) {
+  if (tw.type === 'orbital') return updateOrbital(tw, L, range, dt);
+  if (tw.type === 'hangar') return updateHangar(tw, L, range, dt);
+  return updateMinelayer(tw, L, range, dt);
+}
+function updateOrbital(tw, L, range, dt) {
+  tw.charge = clamp(1 - tw.cool * L.rate, 0, 1);
+  if (tw.cool > 0) return;
+  const tg = pickTargets(tw, range, L.strikes || 1);
+  if (!tg.length) { idleTower(tw, false, dt); return; }
+  tw.cool = 1 / L.rate; tw.flash = .5; tw.idle = 0;
+  tw.angle = Math.atan2(tg[0].y - tw.y, tg[0].x - tw.x);
+  for (const e of tg) v12List('orbs').push({ tw, e, x: e.x, y: e.y, t: 0, warn: L.warn, beam: L.lance || .4, dmg: L.dmg, splash: L.splash * T, burn: L.burn || 0, lance: !!L.lance, hit: false, d: e.dist, lane: e.lane || 0, air: !!e.def.fly });
+  Sfx.play('orbCharge');
+}
+function orbImpact(o) {
+  o.hit = true;
+  const r2 = o.splash * o.splash;
+  for (const e of S.enemies) {
+    if (!e.alive) continue;
+    const dd = d2(e.x, e.y, o.x, o.y); if (dd > r2) continue;
+    applyDamage(e, o.dmg * (1 - .45 * Math.sqrt(dd) / o.splash), 'orbital', o.tw);
+    if (o.burn && e.alive && !(e.chillT > 0)) { e.burn = 2.5; e.burnDps = Math.max(e.burnDps, o.burn); e.burnTw = o.tw; }
+  }
+  addShake(o.lance ? 5 : 8); S.hitstop = Math.max(S.hitstop || 0, .04); Sfx.play('orbFire');
+  damageDecor(o.x, o.y, o.splash * .7);
+  S.rings.push({ x: o.x, y: o.y, r: 8, max: o.splash * 1.3, life: .45, maxLife: .45, color: '255,120,90' });
+  S.rings.push({ x: o.x, y: o.y, r: 4, max: o.splash * .7, life: .3, maxLife: .3, color: '255,240,200' });
+  S.particles.push({ x: o.x, y: o.y, vx: 0, vy: 0, life: .2, max: .2, size: o.splash * .9, color: 'rgba(255,240,220,.9)', kind: 'flash' });
+  S.scorches.push({ x: o.x, y: o.y, r: o.splash * .5, life: 14, max: 14, rot: Math.random() * TAU });
+  for (let k = 0; k < 22; k++) { const a = Math.random() * TAU, v = 80 + Math.random() * 220; S.particles.push({ x: o.x, y: o.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: .6, max: .6, size: 2.5 + Math.random() * 3, color: Math.random() < .5 ? '#ffb347' : '#fff1c4', kind: 'dot', grav: 300 }); }
+  for (let k = 0; k < 8; k++) { const a = Math.random() * TAU, v = 20 + Math.random() * 40; S.particles.push({ x: o.x, y: o.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, life: 1.2, max: 1.2, size: 10 + Math.random() * 10, color: '#8a8177', kind: 'smoke' }); }
+}
+function updateOrbs(dt) {
+  const O = S.orbs; if (!O || !O.length) return;
+  for (const o of O) {
+    o.t += dt;
+    if (!o.hit) {
+      // the targeting laser tracks its mark until the shot comes down
+      if (o.e.alive) { o.x += (o.e.x - o.x) * Math.min(1, dt * 12); o.y += (o.e.y - o.y) * Math.min(1, dt * 12); o.d = o.e.dist; o.lane = o.e.lane || 0; o.air = !!o.e.def.fly; }
+      if (o.t >= o.warn) orbImpact(o);
+      continue;
+    }
+    if (o.lance && !o.air) {
+      // Sun Lance: the beam crawls back up the road toward the entrance, burning everything on the way
+      const P = o.lane && S.map.lanes ? S.map.lanes[o.lane] : S.map;
+      o.d = Math.max(0, o.d - T * 2.6 * dt); const p = pointAt(P, o.d); o.x += (p.x - o.x) * Math.min(1, dt * 10); o.y += (p.y - o.y) * Math.min(1, dt * 10);
+      const r2 = (o.splash * .6) ** 2;
+      for (const e of S.enemies) {
+        if (!e.alive || d2(e.x, e.y, o.x, o.y) > r2) continue;
+        applyDamage(e, o.dmg * .7 * dt, 'orbital', o.tw, false);
+        if (e.alive && !(e.chillT > 0)) { e.burn = 2.5; e.burnDps = Math.max(e.burnDps, o.burn); e.burnTw = o.tw; }
+      }
+      if (Math.random() < dt * 30) S.particles.push({ x: o.x + (Math.random() - .5) * 20, y: o.y, vx: (Math.random() - .5) * 30, vy: -50, life: .5, max: .5, size: 4 + Math.random() * 4, color: '#ffae3a', kind: 'fire' });
+    }
+  }
+  S.orbs = O.filter(o => o.t < o.warn + o.beam);
+}
+function updateHangar(tw, L, range, dt) {
+  const n = Math.max(1, Math.round(L.drones)), D = tw.drones || (tw.drones = []);
+  while (D.length < n) D.push({ x: tw.x, y: tw.y - 6, vx: 0, vy: 0, ph: Math.random() * TAU, cool: Math.random() * .4, tgt: null, lift: 0 });
+  if (D.length > n) D.length = n;
+  const cand = inRange(tw, range);
+  tw.firing = cand.length > 0; tw.charge = (tw.charge + dt * .5) % 1;
+  if (tw.firing) tw.angle = Math.atan2(cand[0].y - tw.y, cand[0].x - tw.x);
+  const max = T * 4.4;
+  D.forEach((d, i) => {
+    if (d.tgt && (!d.tgt.alive || hiddenFrom(d.tgt) || d2(d.tgt.x, d.tgt.y, tw.x, tw.y) > range * range * 1.1)) d.tgt = null;
+    if (!d.tgt && cand.length) { let best = null, bd = Infinity; for (const e of cand) { const dd = d2(e.x, e.y, d.x, d.y) + (D.some(o => o !== d && o.tgt === e) ? T * T * 4 : 0); if (dd < bd) { bd = dd; best = e; } } d.tgt = best; }
+    d.ph += dt * (d.tgt ? 2.6 : 1.3);
+    let gx, gy;
+    if (d.tgt) { gx = d.tgt.x + Math.cos(d.ph + i) * 26; gy = d.tgt.y - 4 + Math.sin(d.ph + i) * 14; d.lift = Math.min(1, d.lift + dt * 3); }
+    else { const a = d.ph + i / n * TAU; gx = tw.x + Math.cos(a) * 20; gy = tw.y - 8 + Math.sin(a) * 9; d.lift = Math.max(.35, d.lift - dt); }
+    const ax = (gx - d.x) * 7 - d.vx * 3.2, ay = (gy - d.y) * 7 - d.vy * 3.2;
+    d.vx += ax * dt; d.vy += ay * dt; const sp = Math.hypot(d.vx, d.vy); if (sp > max) { d.vx *= max / sp; d.vy *= max / sp; }
+    d.x += d.vx * dt; d.y += d.vy * dt;
+    if ((d.cool -= dt) > 0 || !d.tgt || d2(d.x, d.y, d.tgt.x, d.tgt.y) > (T * 1.6) ** 2) return;
+    d.cool = 1 / L.rate * (.9 + Math.random() * .2);
+    const h = 22 * d.lift;
+    if (L.missile) { S.shells.push({ sx: d.x, sy: d.y - h, tx: d.tgt.x, ty: d.tgt.y, t: 0, dur: .3, dmg: L.dmg, splash: L.missile * T, tw, mini: true }); Sfx.play('missile'); }
+    else { S.bullets.push({ x: d.x, y: d.y - h, target: d.tgt, tx: d.tgt.x, ty: d.tgt.y, dmg: L.dmg, tw, light: true }); Sfx.play('drone'); }
+  });
+}
+// The road spots a Minelayer can reach (every lane), cached until its range changes.
+function mineSpots(tw, range) {
+  const key = S.map.total + '|' + Math.round(range);
+  if (tw.spotKey === key) return tw.spots;
+  const out = [], r2 = range * range, paths = S.map.lanes || [S.map];
+  for (const P of paths) for (let d = T * .8; d < P.total - T * 1.2; d += T * .4) {
+    const p = pointAt(P, d);
+    if (p.x < 6 || p.y < 6 || p.x > W - 6 || p.y > H - 6 || d2(p.x, p.y, tw.x, tw.y) > r2) continue;
+    if (!out.some(q => d2(q.x, q.y, p.x, p.y) < 64)) out.push({ x: p.x, y: p.y });
+  }
+  tw.spotKey = key; tw.spots = out;
+  return out;
+}
+function updateMinelayer(tw, L, range, dt) {
+  const M = v12List('mines'), mine = M.filter(m => m.tw === tw);
+  tw.charge = mine.length / L.max;
+  if (tw.cool > 0 || mine.length >= L.max) return;
+  const spots = mineSpots(tw, range); if (!spots.length) return;
+  // lay it where nothing is already waiting, ahead of the hostiles if there are any
+  let best = null, bs = -Infinity;
+  for (let k = 0; k < 8; k++) {
+    const s = spots[Math.random() * spots.length | 0];
+    if (M.some(m => d2(m.x, m.y, s.x, s.y) < (T * .55) ** 2)) continue;
+    let near = 0; for (const e of S.enemies) if (e.alive && !e.def.fly && d2(e.x, e.y, s.x, s.y) < (T * 2.5) ** 2) near++;
+    const sc = near + Math.random(); if (sc > bs) { bs = sc; best = s; }
+  }
+  if (!best) return;
+  tw.cool = 1 / L.rate;
+  tw.angle = Math.atan2(best.y - tw.y, best.x - tw.x); tw.recoil = 1; tw.flash = .15;
+  M.push({ tw, x: best.x + (Math.random() - .5) * 8, y: best.y + (Math.random() - .5) * 6, sx: tw.x, sy: tw.y - 16, t: 0, fly: .42, armed: false, ph: Math.random() * TAU });
+  Sfx.play('launch');
+}
+function updateMines(dt) {
+  const M = S.mines; if (!M || !M.length) return;
+  for (const m of M) {
+    if (!m.armed) { if ((m.t += dt) >= m.fly) { m.armed = true; Sfx.play('mineSet'); S.particles.push({ x: m.x, y: m.y, vx: 0, vy: 0, life: .25, max: .25, size: 10, color: 'rgba(240,230,200,.8)', kind: 'smoke' }); } continue; }
+    m.ph += dt;
+    const trip = (T * .42) ** 2;
+    let hit = false;
+    for (const e of S.enemies) { if (e.alive && !e.def.fly && !hiddenFrom(e) && e.x > 0 && d2(e.x, e.y, m.x, m.y) <= trip + (e.def.r * T * (e.big || 1)) ** 2) { hit = true; break; } }
+    if (!hit) continue;
+    m.dead = true;
+    const L = towerStats(m.tw), sp = L.splash * T;
+    explode({ tx: m.x, ty: m.y, dmg: L.dmg, splash: sp, tw: m.tw, cluster: L.cluster || 0 });
+    if (L.freeze) for (const e of S.enemies) if (e.alive && !e.def.fly && d2(e.x, e.y, m.x, m.y) <= sp * sp) { e.frozen = e.def.boss ? L.freeze * .35 : L.freeze; S.rings.push({ x: e.x, y: e.y, r: 4, max: 22, life: .3, maxLife: .3, color: '190,240,255' }); }
+    if (L.freeze) Sfx.play('freeze');
+  }
+  S.mines = M.filter(m => !m.dead && S.towers.includes(m.tw));
+}
+const updateTowersV11 = updateTowers;
+updateTowers = function (dt) { updateTowersV11(dt); updateOrbs(dt); updateMines(dt); };
+// the uplink goes for the toughest target by default
+const buildTowerV12 = buildTower;
+buildTower = function (type, c, r) { const tw = buildTowerV12(type, c, r); if (tw && type === 'orbital') tw.mode = 2; return tw; };
+const sellTowerV12 = sellTower;
+sellTower = function (tw, ...a) { const r = sellTowerV12(tw, ...a); if (S && S.mines && !S.towers.includes(tw)) S.mines = S.mines.filter(m => m.tw !== tw); return r; };
+
+// ----- drawing: mines sit on the road, drones and lasers above everything -----
+function drawMine(g, m) {
+  const F = m.tw.branch === 1 ? ['#5aa8d8', '#bff0ff'] : m.tw.branch === 0 ? ['#c9702a', '#ffd08a'] : ['#5d6a3a', '#ffe07a'];
+  if (!m.armed) {
+    const k = m.t / m.fly, x = lerp(m.sx, m.x, k), y = lerp(m.sy, m.y, k) - Math.sin(k * Math.PI) * 46;
+    ellipse(g, m.x, m.y + 2, 6 * k, 2.6 * k); g.fillStyle = 'rgba(0,0,0,.25)'; g.fill();
+    circle(g, x, y, 5.5); g.fillStyle = F[0]; g.fill(); ol(g, 1.8);
+    return;
+  }
+  const pulse = (Math.sin(m.ph * 5) + 1) / 2;
+  ellipse(g, m.x + 1.5, m.y + 3, 10, 4.5); g.fillStyle = 'rgba(0,0,0,.25)'; g.fill();
+  ellipse(g, m.x, m.y + 1.5, 9, 4.6); g.fillStyle = shade(F[0], -.35); g.fill(); ol(g, 1.8);
+  ellipse(g, m.x, m.y, 9, 4.6); g.fillStyle = F[0]; g.fill(); ol(g, 1.8);
+  for (let i = 0; i < 4; i++) { const a = i / 4 * TAU + .4; circle(g, m.x + Math.cos(a) * 6, m.y + Math.sin(a) * 2.8, 1.1); g.fillStyle = OUT; g.fill(); }
+  ellipse(g, m.x, m.y - .8, 3, 1.7); g.fillStyle = pulse > .5 ? '#ff4a3a' : '#7a2a24'; g.fill();
+  if (pulse > .5) glow(g, m.x, m.y - 1, 9, '255,80,60', .5);
+}
+function drawDrone(g, d, tw) {
+  const h = 22 * d.lift, col = tw.branch === 0 ? '#e0783a' : tw.branch === 1 ? '#3fb8e0' : TOWERS.hangar.color, x = d.x, y = d.y - h, tilt = clamp(d.vx / 200, -.35, .35);
+  ellipse(g, x + 4, d.y + 6, 9, 3.6); g.fillStyle = `rgba(0,0,0,${.12 + .14 * d.lift})`; g.fill();
+  g.save(); g.translate(x, y); g.rotate(tilt);
+  g.strokeStyle = OUT; g.lineWidth = 2.4; g.beginPath(); g.moveTo(-9, -4); g.lineTo(9, 4); g.moveTo(-9, 4); g.lineTo(9, -4); g.stroke();
+  for (const [rx, ry] of [[-9, -4], [9, -4], [-9, 4], [9, 4]]) { ellipse(g, rx, ry - 2, 6, 2); g.fillStyle = 'rgba(220,235,245,.55)'; g.fill(); g.strokeStyle = 'rgba(43,36,24,.6)'; g.lineWidth = 1; g.stroke(); }
+  rr(g, -6, -4, 12, 8, 3.5); g.fillStyle = vgrad(g, -4, 4, col); g.fill(); ol(g, 1.8);
+  circle(g, 3, 0, 1.6); g.fillStyle = d.tgt ? '#ff4a3a' : '#5aff8a'; g.fill();
+  g.restore();
+}
+function drawOrb(g, o) {
+  const top = -40;
+  if (!o.hit) {
+    const k = o.t / o.warn, r = o.splash * (1.4 - k * .55), spin = S.anim * 3;
+    g.save(); g.globalAlpha = .55 + .45 * Math.abs(Math.sin(S.anim * 14));
+    g.strokeStyle = 'rgba(255,60,50,.9)'; g.lineWidth = 2.4; g.setLineDash([8, 6]); ellipse(g, o.x, o.y + 4, r, r * .55); g.stroke(); g.setLineDash([]);
+    for (let i = 0; i < 4; i++) { const a = spin + i * Math.PI / 2, c = Math.cos(a), s = Math.sin(a); g.beginPath(); g.moveTo(o.x + c * r * .55, o.y + 4 + s * r * .3); g.lineTo(o.x + c * r * .9, o.y + 4 + s * r * .5); g.lineWidth = 3; g.stroke(); }
+    g.beginPath(); g.moveTo(o.x + (o.x - W / 2) * .05, top); g.lineTo(o.x, o.y); g.strokeStyle = 'rgba(255,70,60,.45)'; g.lineWidth = 1.6; g.stroke();
+    g.restore();
+    return;
+  }
+  const bt = o.t - o.warn, k = clamp(1 - bt / o.beam, 0, 1), w = (o.lance ? 18 : 30) * (o.lance ? 1 : k) + 4, sx = o.x + (o.x - W / 2) * .05;
+  g.save(); g.globalCompositeOperation = 'lighter';
+  for (const [ww, col] of [[w * 2.2, 'rgba(255,60,40,.22)'], [w * 1.2, 'rgba(255,120,60,.5)'], [w * .55, 'rgba(255,230,190,.9)'], [w * .22, 'rgba(255,255,255,1)']]) {
+    g.beginPath(); g.moveTo(sx - ww / 2, top); g.lineTo(sx + ww / 2, top); g.lineTo(o.x + ww * .7, o.y); g.lineTo(o.x - ww * .7, o.y); g.closePath(); g.fillStyle = col; g.fill();
+  }
+  glow(g, o.x, o.y, o.splash * (o.lance ? .8 : 1.2), '255,140,80', .8 * (o.lance ? 1 : k));
+  g.restore();
+}
+const drawSeasonV12 = drawSeason;
+drawSeason = function (g) { drawSeasonV12(g); if (g === ctx && S && S.mines) for (const m of S.mines) drawMine(g, m); };
+const drawBeamsV12 = drawBeams;
+drawBeams = function (g) {
+  drawBeamsV12(g);
+  for (const tw of S.towers) if (tw.type === 'hangar' && tw.drones) for (const d of tw.drones) drawDrone(g, d, tw);
+  if (S.orbs) for (const o of S.orbs) drawOrb(g, o);
+};
+
+// ----- tower models -----
+Object.assign(TOWER_HEADS, {
+  // Orbital Laser Uplink: a big dish on a armoured mount; it glows red as the next shot charges.
+  orbital({ g, tw, lv, br, anim }) {
+    const k = tw.charge || 0, gold = br === 0, sat = br === 1;
+    box(g, -14, -12, 28, 14, 5, '#4a5058');
+    for (const sx of [-1, 1]) { rr(g, sx * 13 - 4, -8, 8, 10, 3); g.fillStyle = '#3a3f46'; g.fill(); ol(g, 1.6); }
+    if (lv >= 1) for (const sx of [-1, 1]) { g.save(); g.translate(sx * 20, -10); g.rotate(sx * .25); rr(g, -6, -9, 12, 16, 2); g.fillStyle = '#2a4a8a'; g.fill(); ol(g, 1.6); g.strokeStyle = 'rgba(160,210,255,.6)'; g.lineWidth = 1; for (let i = -5; i <= 5; i += 5) { g.beginPath(); g.moveTo(i, -9); g.lineTo(i, 7); g.stroke(); } g.restore(); }
+    const dishes = sat ? [[-11, -26, .62], [11, -26, .62], [0, -36, .7]] : [[0, -30, 1]];
+    for (const [dx, dy, s] of dishes) {
+      g.save(); g.translate(dx, dy); g.scale(s, s);
+      g.strokeStyle = OUT; g.lineWidth = 5; g.beginPath(); g.moveTo(0, 18); g.lineTo(0, 6); g.stroke(); g.strokeStyle = '#8a96a6'; g.lineWidth = 2.6; g.stroke();
+      ellipse(g, 0, 0, 20, 12, -.35); g.fillStyle = gold ? '#e8b830' : '#dfe6ec'; g.fill(); ol(g, 2.4);
+      ellipse(g, 1, -1, 15, 8, -.35); g.fillStyle = gold ? '#ffd86a' : '#f6fafc'; g.fill();
+      g.strokeStyle = 'rgba(43,36,24,.25)'; g.lineWidth = 1.2; ellipse(g, 1, -1, 9, 4.6, -.35); g.stroke();
+      g.strokeStyle = OUT; g.lineWidth = 2.2; g.beginPath(); g.moveTo(-8, -2); g.lineTo(6, -18); g.moveTo(9, 4); g.lineTo(6, -18); g.stroke();
+      circle(g, 6, -19, 3.4); g.fillStyle = k > .9 ? '#ff4a3a' : '#c94a3a'; g.fill(); ol(g, 1.6);
+      if (k > .2) glow(g, 6, -19, 10 + k * 12, '255,80,60', .3 + k * .5);
+      g.restore();
+    }
+    // a charge meter ring on the mount
+    g.beginPath(); g.arc(0, -4, 9, -Math.PI / 2, -Math.PI / 2 + TAU * k); g.strokeStyle = k > .95 ? '#ff4a3a' : '#ffb347'; g.lineWidth = 3; g.stroke();
+    if (lv === 2) { const on = Math.sin(anim * 6) > 0; for (const sx of [-1, 1]) { circle(g, sx * 10, -13, 1.8); g.fillStyle = on ? '#5aff8a' : '#2a7a3a'; g.fill(); } }
+  },
+  // Drone Hangar: a rounded hangar with a landing pad and a beacon; bigger bays as it levels up.
+  hangar({ g, tw, lv, br, anim }) {
+    const col = br === 0 ? '#c9702a' : br === 1 ? '#3fa0c8' : '#5a7ab8';
+    rr(g, -20, -6, 40, 14, 4); g.fillStyle = '#5a5f66'; g.fill(); ol(g, 2);
+    g.fillStyle = '#ffd23f'; g.font = `bold 9px ${HUD_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('H', 12, 1);
+    circle(g, 12, 1, 5.5); g.strokeStyle = '#ffd23f'; g.lineWidth = 1.4; g.stroke();
+    const bays = lv === 2 ? 2 : 1;
+    for (let i = 0; i < bays; i++) {
+      const bx = bays === 2 ? -12 + i * 12 : -6, w = bays === 2 ? 11 : 15;
+      g.beginPath(); g.moveTo(bx - w, 2); g.lineTo(bx - w, -10); g.arc(bx, -10, w, Math.PI, 0); g.lineTo(bx + w, 2); g.closePath();
+      g.fillStyle = vgrad(g, -10 - w, 2, col); g.fill(); ol(g, 2.2);
+      g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 1.2; for (let s = -w + 4; s < w; s += 5) { g.beginPath(); g.moveTo(bx + s, 1); g.lineTo(bx + s, -10 - Math.sqrt(Math.max(0, w * w - s * s)) + 2); g.stroke(); }
+      rr(g, bx - w * .5, -10, w, 12, 2); g.fillStyle = '#1f2226'; g.fill(); ol(g, 1.6);
+      g.save(); rr(g, bx - w * .5, -10, w, 3, 1); g.clip(); for (let s = -12; s < 12; s += 4) { g.fillStyle = (s / 4 | 0) % 2 ? '#2b2418' : '#ffc23a'; g.fillRect(bx + s, -10, 2, 3); } g.restore();
+    }
+    g.strokeStyle = OUT; g.lineWidth = 2.4; g.beginPath(); g.moveTo(-18, -14); g.lineTo(-18, -30); g.stroke();
+    const on = Math.sin(anim * 5 + tw.seed) > 0; circle(g, -18, -31, 2.4); g.fillStyle = on ? '#5aff8a' : '#2a7a3a'; g.fill(); ol(g, 1);
+    if (on) glow(g, -18, -31, 9, '90,255,140', .5);
+    // drones parked at home when there's nothing to chase
+    if (!tw.drones) for (let i = 0; i < Math.min(3, 2 + lv); i++) { const x = -10 + i * 10, y = -26 - (i % 2) * 4; rr(g, x - 3, y - 2, 6, 4, 2); g.fillStyle = col; g.fill(); ol(g, 1.2); }
+  },
+  // Minelayer: a stubby launcher on a supply crate, with a rack of mines and a lobbing tube.
+  mines({ g, tw, lv, br, rec }) {
+    const col = br === 1 ? '#5aa8d8' : br === 0 ? '#c9702a' : '#5d6a3a';
+    box(g, -16, -6, 18, 13, 3, '#8a6a3a'); g.strokeStyle = 'rgba(60,40,15,.5)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-16, 0); g.lineTo(2, 0); g.stroke();
+    const n = Math.max(1, Math.round((1 - (tw.charge || 0)) * (3 + lv)));
+    for (let i = 0; i < n; i++) { const y = 4 - i * 4.2; ellipse(g, 11, y, 7, 3); g.fillStyle = shade(col, -.25); g.fill(); ol(g, 1.4); ellipse(g, 11, y - 1.2, 7, 3); g.fillStyle = col; g.fill(); ol(g, 1.4); circle(g, 11, y - 1.6, 1.2); g.fillStyle = '#ff4a3a'; g.fill(); }
+    aimFrame(g, tw, -10);
+    tube(g, -4 - rec, 0, 22, 8, '#3e4650'); box(g, 14 - rec, -5.5, 6, 11, 2, '#2e3338', 1.6);
+    g.restore();
+    ball(g, 0, -10, 5, col);
+  },
+});
+
+// ----- shop: the elite uplink can also be bought with gems -----
+tabTowers = function (body) {
+  body.appendChild(h3('Towers', 'unlock with coins'));
+  const grid = el('div', 'unlocks');
+  for (const type of TOWER_ORDER) {
+    const d = TOWERS[type], open = isUnlocked(type), tile = el('div', 'ul' + (open ? '' : ' locked') + (d.elite ? ' elite' : ''));
+    if (d.elite) tile.appendChild(el('span', 'elite-tag', 'ELITE'));
+    tile.appendChild(towerIcon(type, open ? 2 : 0, 56));
+    tile.appendChild(el('span', 'n', d.name));
+    tile.appendChild(el('span', 'r', d.role + (AIR_TOWERS[type] ? ' · hits drones' : ' · ground only')));
+    if (open) tile.appendChild(el('span', 'ok', d.unlock ? 'Unlocked' : 'Standard issue'));
+    else {
+      const done = () => { profile.unlocked[type] = true; saveProfile(); Sfx.unlock(); Sfx.play('unlock', true); celebrate({ title: 'Tower unlocked!', sub: d.blurb, items: [] }); refreshHome(); };
+      const b = btn('btn-gold btn-sm', `${svgCoin(14)} ${fmt(d.unlock)}`);
+      b.disabled = profile.coins < d.unlock;
+      b.addEventListener('click', () => { if (profile.coins < d.unlock) return; profile.coins -= d.unlock; done(); });
+      tile.appendChild(b);
+      if (d.gems) {
+        const gb = btn('btn-wood btn-sm', `💎 ${fmt(d.gems)}`); gb.disabled = profile.gems < d.gems;
+        armed(gb, `Spend ${fmt(d.gems)} 💎?`, () => { if (profile.gems < d.gems) return; profile.gems -= d.gems; done(); });
+        tile.appendChild(gb);
+      }
+    }
+    grid.appendChild(tile);
+  }
+  body.appendChild(grid);
+};
+document.head.insertAdjacentHTML('beforeend', `<style>
+.ul.elite{background:linear-gradient(180deg,#fff2d6,#ffd9c4);border-color:#c8343a;position:relative}
+.ul .elite-tag{position:absolute;top:6px;right:6px;background:#c8343a;color:#fff;font:900 10px/1 var(--hud,sans-serif);padding:3px 6px;border-radius:999px;letter-spacing:.06em}
+</style>`);
+// ---------- v12 world: chunkier 2.5D trees, organic ponds, extra entrances, and a base that matches the maps ----------
+
+// ----- trees: each canopy layer gets a deep, shaded side like the towers have -----
+function mixHex(a, b, k) {
+  const A = parseInt(a.slice(1), 16), B = parseInt(b.slice(1), 16), m = (s) => Math.round(((A >> s) & 255) * (1 - k) + ((B >> s) & 255) * k);
+  return '#' + ((1 << 24) | (m(16) << 16) | (m(8) << 8) | m(0)).toString(16).slice(1);
+}
+function bakeDeep(box, depth, silTop, silBot, fn) {
+  const bk = v9BK(), [x0, y0, x1, y1] = box, w = Math.ceil((x1 - x0) * bk), h = Math.ceil((y1 - y0 + depth + 1.5) * bk);
+  const art = mkCv(w, h), a = art.getContext('2d'); a.setTransform(bk, 0, 0, bk, -x0 * bk, -y0 * bk); a.lineJoin = 'round'; a.lineCap = 'round'; fn(a);
+  const out = mkCv(w, h), o = out.getContext('2d'), tmp = mkCv(w, h);
+  silOf(art, tmp, w, h, OUT); o.drawImage(tmp, 0, (depth + 1) * bk);
+  // the side darkens toward the ground, three bands deep
+  const bands = [silBot, mixHex(silTop, silBot, .5), silTop];
+  for (let b = 0; b < 3; b++) {
+    silOf(art, tmp, w, h, bands[b]);
+    const from = depth * (1 - b / 3), to = depth * (1 - (b + 1) / 3);
+    for (let i = from; i >= Math.max(.5, to); i -= .5) o.drawImage(tmp, 0, i * bk);
+  }
+  o.drawImage(art, 0, 0);
+  return { c: out, x0, y0, w: w / bk, h: h / bk };
+}
+treeSprites = function (tk, j, th) {
+  const jq = (Math.floor(j * 4) + .5) / 4, key = `t2|${tk}|${jq}|${th.name}`;
+  let sp = V9.spr.get(key);
+  if (!sp) {
+    const D = TREES[tk], seed = (jq * 1000 | 0) + tk.length * 77, deep = tk === 'bush' ? 6 : 10;
+    sp = {
+      trunk: bakeDeep(D.box, 3.5, '#5a3a1e', '#2a1a0c', g => D.trunk(g, mulberry(seed), jq)),
+      layers: D.layers.map((L, i) => bakeDeep(D.box, deep - i * 2, shade(D.sil, .08), shade(D.sil, -.45), g => L(g, mulberry(seed + i * 13), jq))),
+    };
+    V9.spr.set(key, sp);
+  }
+  return sp;
+};
+
+// ----- water: ponds and rivers get a hand-drawn outline instead of square tiles -----
+// Trace the outline of every patch of water, then nudge the corners and mid-points so the shore has soft angles.
+function waterLoops(map) {
+  if (map.wLoops) return map.wLoops;
+  const tiles = waterTiles(map), isW = (c, r) => isWater(map, c, r), edges = new Map(), key = (x, y) => x + ',' + y;
+  const add = (x1, y1, x2, y2) => { const k = key(x1, y1); if (!edges.has(k)) edges.set(k, []); edges.get(k).push([x2, y2]); };
+  for (const { c, r } of tiles) {
+    if (!isW(c, r - 1)) add(c, r, c + 1, r);
+    if (!isW(c + 1, r)) add(c + 1, r, c + 1, r + 1);
+    if (!isW(c, r + 1)) add(c + 1, r + 1, c, r + 1);
+    if (!isW(c - 1, r)) add(c, r + 1, c, r);
+  }
+  const R = mulberry(map.def.seed * 13 + 5), loops = [];
+  for (const [k0] of edges) {
+    let list = edges.get(k0);
+    while (list && list.length) {
+      const pts = []; let [x, y] = k0.split(',').map(Number), guard = 0;
+      for (;;) {
+        const L = edges.get(key(x, y)); if (!L || !L.length || guard++ > 4000) break;
+        const [nx, ny] = L.shift(); pts.push([x, y]); x = nx; y = ny;
+        if (key(x, y) === k0) break;
+      }
+      // drop straight-through corners; cut the outer corners off at an angle and wobble the sides
+      const simp = pts.filter((p, i) => { const a = pts[(i - 1 + pts.length) % pts.length], b = pts[(i + 1) % pts.length]; return (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]) !== 0; });
+      const n0 = simp.length, cx = [], cut = [];
+      for (let i = 0; i < n0; i++) { const a = simp[(i - 1 + n0) % n0], p = simp[i], b = simp[(i + 1) % n0]; cx.push((p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]) > 0); cut.push(12 + R() * 12); }
+      const out = [];
+      for (let i = 0; i < n0; i++) {
+        const a = simp[i], b = simp[(i + 1) % n0], len = Math.hypot(b[0] - a[0], b[1] - a[1]) * T, ux = (b[0] - a[0]) * T / len, uy = (b[1] - a[1]) * T / len, nx = uy, ny = -ux;
+        const s0 = cx[i] ? Math.min(cut[i], len * .4) : 0, s1 = cx[(i + 1) % n0] ? Math.min(cut[(i + 1) % n0], len * .4) : 0;
+        const at = (d, j) => ({ x: a[0] * T + ux * d + nx * j, y: a[1] * T + uy * d + ny * j });
+        out.push(at(s0, cx[i] ? -2 + R() * 3 : 2 + R() * 3));
+        const n = Math.max(1, Math.round((len - s0 - s1) / (T * .5)));
+        for (let k = 1; k < n; k++) out.push(at(s0 + (len - s0 - s1) * (k + (R() - .5) * .5) / n, -5 + R() * 13));
+        if (s1) out.push(at(len - s1, -2 + R() * 3));
+      }
+      const sm = [];
+      for (let i = 0; i < out.length; i++) { const p = out[i], q = out[(i + 1) % out.length]; sm.push({ x: p.x * .85 + q.x * .15, y: p.y * .85 + q.y * .15 }, { x: p.x * .15 + q.x * .85, y: p.y * .15 + q.y * .85 }); }
+      if (sm.length > 4) loops.push(sm);
+      list = edges.get(k0);
+    }
+  }
+  return (map.wLoops = loops);
+}
+function waterPath(g, loops) { g.beginPath(); for (const L of loops) { g.moveTo(L[0].x, L[0].y); for (let i = 1; i < L.length; i++) g.lineTo(L[i].x, L[i].y); g.closePath(); } }
+drawWater = function (g, map) {
+  const loops = waterLoops(map), Wt = waterLook(map); if (!loops.length) return;
+  g.save(); g.lineJoin = 'round';
+  waterPath(g, loops);
+  g.lineWidth = 18; g.strokeStyle = OUT; g.stroke(); g.fillStyle = OUT; g.fill();
+  g.lineWidth = 14; g.strokeStyle = Wt.shore; g.stroke(); g.fillStyle = Wt.shore; g.fill();
+  g.lineWidth = 6; g.strokeStyle = Wt.wet; g.stroke(); g.fillStyle = Wt.wet; g.fill();
+  g.fillStyle = Wt.body; g.fill(); g.lineWidth = 2; g.strokeStyle = Wt.body; g.stroke();
+  // deeper water away from the shore
+  g.save(); waterPath(g, loops); g.clip(); g.fillStyle = Wt.deep; g.fill(); g.lineWidth = 34; g.strokeStyle = Wt.body; g.stroke(); g.restore();
+  if (Wt.ice) { g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = 1.4; for (const { c, r } of waterTiles(map)) { g.beginPath(); g.moveTo(c * T + 8, r * T + 30); g.lineTo(c * T + 20, r * T + 18); g.lineTo(c * T + 30, r * T + 26); g.stroke(); } }
+  g.restore();
+};
+drawWaterAnim = function (g) {
+  const t = S.anim, Wt = waterLook(S.map), loops = waterLoops(S.map);
+  if (Wt.lava) for (const { c, r } of waterTiles(S.map)) { const f = .5 + .5 * Math.sin(t * 1.6 + c * .7 + r * 1.3); g.fillStyle = `rgba(255,220,120,${.12 + f * .2})`; circle(g, c * T + T / 2, r * T + T / 2, 12 + f * 8); g.fill(); }
+  g.strokeStyle = Wt.glint; g.lineWidth = 1.6; g.lineCap = 'round';
+  for (const { c, r } of waterTiles(S.map)) for (let k = 0; k < 2; k++) {
+    const x = c * T + ((t * 14 + r * 13 + c * 7 + k * 24) % T), y = r * T + 12 + k * 20 + Math.sin(t * 2 + c + k) * 2;
+    g.globalAlpha = .35 + .25 * Math.sin(t * 3 + c * 2 + r + k);
+    g.beginPath(); g.moveTo(x - 5, y); g.quadraticCurveTo(x, y - 2, x + 5, y); g.stroke();
+  }
+  // foam lapping the shore, drifting slowly around each pond
+  g.globalAlpha = .4 + .2 * Math.sin(t * 2.4); g.setLineDash([7, 11]); g.lineDashOffset = -t * 9; g.lineWidth = 2;
+  waterPath(g, loops); g.stroke(); g.setLineDash([]); g.lineDashOffset = 0;
+  g.globalAlpha = 1;
+};
+
+// ----- extra entrances: every lane gets its own road, all drawn as one network so the junctions join cleanly -----
+const drawRoadV11 = drawRoad;
+drawRoad = function (g, map, R, th) {
+  if (!map.lanes) return drawRoadV11(g, map, R, th);
+  const rd = th.road, roads = [roundedPath(map.pts, T * .55), ...map.lanes.slice(1).map(L => roundedPath(L.own.concat([pointAt(map, L.join)]), T * .55))];
+  for (const [w, c] of [[T * 1.06, 'rgba(0,0,0,.12)'], [T * .98, OUT], [T * .88, rd.edge], [T * .78, rd.base], [T * .42, rd.mid]]) for (const p of roads) strokePath(g, p, w, c);
+  for (const s of map.segs) for (let t = 0; t < s.len; t += 5) {
+    const px = s.ax + s.dx * t, py = s.ay + s.dy * t, nx = -s.dy, ny = s.dx;
+    if (R() < .4) { const off = (R() - .5) * T * .66; g.fillStyle = rd.grit[R() < .5 ? 0 : 1]; ellipse(g, px + nx * off, py + ny * off, 1.2 + R() * 2, 1 + R() * 1.4, R() * 3); g.fill(); }
+  }
+  for (const p of roads) {
+    if (rd.kind === 'asphalt') strokePath(g, p, 2.4, rd.line, [12, 12]);
+    else for (const off of [-T * .17, T * .17]) strokePath(g, offsetPath(p, off), 3, rd.track);
+  }
+};
+// Where a lane comes onto the map: a barrier gate with hazard stripes and a red arrow pointing in.
+function drawLaneGate(g, L) {
+  const a = L.own[0], b = L.own[1] || L.pts[1], dx = Math.sign(b.x - a.x), dy = Math.sign(b.y - a.y);
+  let x = a.x, y = a.y;
+  // slide the gate to the board edge
+  if (dx) x = dx > 0 ? 6 : W - 6; if (dy) y = dy > 0 ? 8 : H - 6;
+  g.save(); g.translate(x, y); g.rotate(Math.atan2(dy, dx));
+  for (const s of [-1, 1]) {
+    rr(g, -6, s * 27 - 7, 14, 14, 3); g.fillStyle = '#6b7078'; g.fill(); ol(g, 2.2);
+    circle(g, 1, s * 27, 3); g.fillStyle = '#ff4040'; g.fill(); ol(g, 1.2);
+  }
+  g.save(); rr(g, -3, -21, 6, 42, 2); g.clip(); for (let k = -24; k < 24; k += 6) { g.fillStyle = (k / 6 | 0) % 2 ? '#2b2418' : '#ffc23a'; g.fillRect(-3, k, 6, 3); } g.restore();
+  rr(g, -3, -21, 6, 42, 2); ol(g, 1.8);
+  poly(g, [[14, -7], [26, 0], [14, 7], [16, 0]]); g.fillStyle = '#e5433a'; g.fill(); ol(g, 1.8);
+  g.restore();
+}
+const drawTerrainV11 = drawTerrain;
+drawTerrain = function (g, map, withDecor) {
+  drawTerrainV11(g, map, withDecor);
+  if (map.lanes) for (const L of map.lanes.slice(1)) drawLaneGate(g, L);
+};
+
+// ----- the base: the same checkered ground, outlined roads and 2.5D trees as the battle maps -----
+hubStatic = function () {
+  const { w, h, dpr, s, zx, zy } = hub, M = HUB_M, c = document.createElement('canvas');
+  c.width = Math.round((w + M * 2) * dpr); c.height = Math.round((h + M * 2) * dpr);
+  const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, M * dpr, M * dpr);
+  const th = THEMES.meadow, tile = 50 * s;
+  g.fillStyle = th.ground; g.fillRect(-M, -M, w + M * 2, h + M * 2);
+  const i0 = Math.floor((-M - zx) / tile), j0 = Math.floor((-M - zy) / tile);
+  g.fillStyle = th.check;
+  for (let i = i0; i * tile + zx < w + M; i++) for (let j = j0; j * tile + zy < h + M; j++) if ((i + j) & 1) { rr(g, zx + i * tile + .5, zy + j * tile + .5, tile - 1, tile - 1, tile * .23); g.fill(); }
+  g.fillStyle = 'rgba(255,255,230,.05)';
+  for (let i = i0; i * tile + zx < w + M; i++) for (let j = j0; j * tile + zy < h + M; j++) if ((i + j) & 1) { rr(g, zx + i * tile + tile * .1, zy + j * tile + tile * .08, tile * .8, tile * .42, tile * .16); g.fill(); }
+  g.save(); g.translate(zx, zy); g.scale(s, s);
+  const vx0 = (-M - zx) / s, vy0 = (-M - zy) / s, vx1 = (w + M - zx) / s, vy1 = (h + M - zy) / s, R = mulberry(77);
+  for (let i = 0; i < 18; i++) {
+    const x = vx0 + R() * (vx1 - vx0), y = vy0 + R() * (vy1 - vy0), rad = 70 + R() * 130, gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, R() < .6 ? th.patch : 'rgba(0,0,0,.06)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  for (let i = 0; i < 520; i++) drawCover(g, th, vx0 + R() * (vx1 - vx0), vy0 + R() * (vy1 - vy0), R);
+  // roads: the plaza and a lane out to every building, layered just like the map roads
+  const rd = th.road, bez = (a, m, b) => { const out = []; for (let k = 0; k <= 16; k++) { const t = k / 16, u = 1 - t; out.push({ x: u * u * a.x + 2 * u * t * m.x + t * t * b.x, y: u * u * a.y + 2 * u * t * m.y + t * t * b.y }); } return out; };
+  const paths = HUB.filter(b => b.id !== 'hq').map(b => bez(HUB_DOOR, { x: (HUB_DOOR.x + b.x) / 2, y: b.y + 6 }, { x: b.x, y: b.y + 6 }));
+  const plaza = (rx, ry, col) => { ellipse(g, 500, 420, rx, ry); g.fillStyle = col; g.fill(); };
+  plaza(176, 70, 'rgba(0,0,0,.12)'); for (const p of paths) strokePath(g, p, 52, 'rgba(0,0,0,.12)');
+  plaza(172, 66, OUT); for (const p of paths) strokePath(g, p, 46, OUT);
+  plaza(168, 62, rd.edge); for (const p of paths) strokePath(g, p, 41, rd.edge);
+  plaza(164, 58, rd.base); for (const p of paths) strokePath(g, p, 36, rd.base);
+  for (const p of paths) strokePath(g, p, 18, rd.mid); plaza(118, 38, rd.mid);
+  for (const p of paths) for (const off of [-8, 8]) strokePath(g, offsetPath(p, off), 2.6, rd.track);
+  for (let i = 0; i < 160; i++) { const p = paths[i % paths.length], q = p[R() * p.length | 0]; ellipse(g, q.x + (R() - .5) * 26, q.y + (R() - .5) * 16, 1.2 + R() * 2, 1 + R() * 1.4, R() * 3); g.fillStyle = rd.grit[i % 2]; g.fill(); }
+  // helipad
+  circle(g, 940, 600, 46); g.fillStyle = 'rgba(0,0,0,.15)'; g.fill();
+  circle(g, 940, 600, 44); g.fillStyle = OUT; g.fill(); circle(g, 940, 600, 40); g.fillStyle = '#9aa29a'; g.fill(); circle(g, 940, 600, 30); g.strokeStyle = '#fff6dc'; g.lineWidth = 3; g.stroke();
+  g.fillStyle = '#fff6dc'; g.fillRect(926, 586, 6, 28); g.fillRect(948, 586, 6, 28); g.fillRect(926, 597, 28, 6);
+  for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; circle(g, 940 + Math.cos(a) * 42, 600 + Math.sin(a) * 42, 2.2); g.fillStyle = k % 2 ? '#ffd23f' : '#ff4a3a'; g.fill(); }
+  // props with soft shadows, like the battle maps
+  const shadow = (x, y, r) => { ellipse(g, x + r * .35, y + 7 + r * .12, r * 1.05, r * .36, .25); g.fillStyle = 'rgba(30,50,20,.22)'; g.fill(); };
+  for (const [x, y, r] of [[420, 470, 24], [580, 470, 24], [620, 515, 30], [860, 300, 22], [930, 470, 20], [60, 330, 20], [80, 560, 22], [450, 230, 18], [905, 160, 26], [120, 215, 30], [380, 140, 26]]) shadow(x, y, r);
+  drawSandbags(g, 420, 470, 1.6, th); drawSandbags(g, 580, 470, 1.6, th);
+  drawJeep(g, 620, 515, 2.2, .7, th);
+  drawCrates(g, 860, 300, 1.8, .7); drawBarrels(g, 930, 470, 1.7, .8); drawBarrels(g, 60, 330, 1.6, .2);
+  drawSandbags(g, 80, 560, 1.5, th); drawCrates(g, 450, 230, 1.5, .2);
+  drawRadarProp(g, 905, 160, 2.2, 0);
+  drawTent(g, 120, 215, 2.3, th); drawTent(g, 380, 140, 1.9, th);
+  // the tree line: the same stacked trees as the maps, back to front so they overlap properly
+  const step = 74, trees = [];
+  for (let x = Math.floor(vx0 / step) * step; x < vx1 + step; x += step) for (let y = Math.floor(vy0 / step) * step; y < vy1 + step; y += step) {
+    const jx = x + (R() - .5) * 50, jy = y + (R() - .5) * 40, k = R(), sc = 2 + R() * .6, j = R();
+    if (jx > -30 && jx < HUB_W + 30 && jy > 40 && jy < HUB_H + 40) continue;
+    trees.push({ x: jx, y: jy, tk: k < .45 ? treeKind('oak', j, 'meadow') : k < .75 ? 'pine' : 'bush', s: sc * (k < .75 ? .78 : .8), j });
+  }
+  trees.sort((a, b) => a.y - b.y);
+  for (const t of trees) { shadow(t.x, t.y, 18 * t.s); drawTree(g, t.tk, t.x, t.y, t.s, t.j, th, 0, 0); }
+  g.restore();
+  return c;
+};
+
+// The camp pond: an irregular, slightly angular shoreline instead of a perfect oval.
+const CAMP_POND_SHAPE = (() => { const R = mulberry(41), out = []; for (let i = 0; i < 16; i++) { const a = i / 16 * TAU, k = .86 + R() * .24; out.push([Math.cos(a) * 52 * k, Math.sin(a) * 19 * k]); } return out; })();
+function pondPath(g, x, y, grow) { g.beginPath(); CAMP_POND_SHAPE.forEach(([px, py], i) => { const sx = x + px + Math.sign(px) * grow, sy = y + py + Math.sign(py) * grow * .45; i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); g.closePath(); }
+drawPond = function (g, t) {
+  const { x, y } = CAMP_POND;
+  g.save(); g.lineJoin = 'round';
+  pondPath(g, x, y + 2, 8); g.fillStyle = 'rgba(0,0,0,.12)'; g.fill();
+  pondPath(g, x, y, 6); g.fillStyle = OUT; g.fill(); g.lineWidth = 4; g.strokeStyle = OUT; g.stroke();
+  pondPath(g, x, y, 4); g.fillStyle = '#f2e2aa'; g.fill();
+  pondPath(g, x, y, 1); g.fillStyle = '#d9c180'; g.fill();
+  pondPath(g, x, y + 1, -2); g.fillStyle = '#3cbad4'; g.fill();
+  g.save(); pondPath(g, x, y + 1, -2); g.clip(); ellipse(g, x + 4, y + 4, 34, 9); g.fillStyle = 'rgba(10,70,130,.22)'; g.fill(); ellipse(g, x - 8, y - 5, 28, 5); g.fillStyle = 'rgba(255,255,255,.2)'; g.fill(); g.restore();
+  g.setLineDash([6, 9]); g.lineDashOffset = -t * 8; g.globalAlpha = .45; g.lineWidth = 1.6; g.strokeStyle = '#ffffff'; pondPath(g, x, y + 1, -3); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+  g.restore();
+  for (let i = 0; i < 3; i++) { const k = (t * .4 + i / 3) % 1; ellipse(g, x - 20 + i * 18, y + 2, 3 + k * 10, (3 + k * 10) * .4); g.strokeStyle = `rgba(255,255,255,${.5 * (1 - k)})`; g.lineWidth = 1.2; g.stroke(); }
+  for (const [px, py, fl] of [[x + 28, y + 4, 1], [x - 32, y + 5, 0]]) { g.save(); g.translate(px, py); g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, 6, .4, TAU - .1); g.closePath(); g.fillStyle = '#4fa84a'; g.fill(); g.strokeStyle = '#2f6a2a'; g.lineWidth = 1.2; g.stroke(); if (fl) { for (let i = 0; i < 5; i++) { const a = i / 5 * TAU; circle(g, Math.cos(a) * 1.8, -1 + Math.sin(a) * 1.3, 1.5); g.fillStyle = '#ffb3d1'; g.fill(); } } g.restore(); }
+  for (const [rx, ry] of [[x - 52, y - 6], [x - 48, y + 8], [x + 52, y - 4]]) for (let i = 0; i < 4; i++) { g.strokeStyle = '#4e8a34'; g.lineWidth = 2; g.beginPath(); g.moveTo(rx + i * 2, ry); g.lineTo(rx + i * 2 + Math.sin(t * 2 + i) * 1.5, ry - 10 - i % 2 * 4); g.stroke(); if (i === 1) { rr(g, rx + i * 2 - 1.6, ry - 16, 3.2, 6, 1.6); g.fillStyle = '#7a4e2a'; g.fill(); } }
+  for (const d of camp.ducks) {
+    d.ph += camp.dt;
+    if (!d.baby) { d.x = x + Math.cos(t * .25) * 30; d.y = y + Math.sin(t * .25) * 8; d.f = -Math.sin(t * .25) > 0 ? 1 : -1; }
+    else { const L = camp.ducks[0]; d.x += (L.x - L.f * 14 - d.x) * Math.min(1, camp.dt * 2); d.y += (L.y + 2 - d.y) * Math.min(1, camp.dt * 2); d.f = L.f; }
+    g.save(); g.translate(d.x, d.y); g.scale(1.6, 1.6); g.translate(-d.x, -d.y); drawDuck(g, d); g.restore();
+  }
+};
+// ---------- v12 co-op: more ways to play together, easier money, and maps with as many entrances as you like ----------
+
+// ----- money: each player starts with more, and kills pay a bit more since every kill is split in two -----
+COOP.startK = .85; COOP.gift = 35;
+const makeRulesV12 = makeRules;
+makeRules = function (mode, mapIdx, ...a) {
+  const r = makeRulesV12(mode, mapIdx, ...a);
+  if (mode === 'coop') { r.goldMul *= 1.25; r.bonusMul = (r.bonusMul || 1) * 1.2; }
+  return r;
+};
+
+// ----- co-op modes: each is a "mission" built for a map on demand, so online play finds it by id like any other -----
+const COOP_MODES = {
+  split: { name: 'Split Lanes', icon: '🔱', waves: 25, desc: 'Two roads, one HQ. Hostiles take turns on each road, so split up and hold your side.',
+    maps: () => MAPS.filter(m => m.split || (m.custom && Array.isArray(m.lanes) && m.lanes.length)) },
+  endless: { name: 'Co-op Endless', icon: '♾️', waves: 0, desc: 'No finish line. The waves keep getting meaner. How far can you go together?',
+    maps: () => MAPS.filter(m => !m.custom).slice(0, 40), apply: r => { r.maxWave = 0; } },
+  bossrush: { name: 'Co-op Boss Rush', icon: '☠️', waves: 20, desc: 'A Goliath every single wave, and more of them as you go. You both start with a war chest.',
+    maps: () => MAPS.filter(m => !m.custom).slice(0, 40), apply: r => { r.bossRush = true; r.startGold += 260; r.bonusMul *= 1.5; r.engineerFrom = 999; } },
+  custom: { name: 'Your Maps', icon: '✏️', waves: 0, desc: 'Play the maps you drew in the Map Maker, with every entrance you added.',
+    maps: () => MAPS.filter(m => m.custom) },
+};
+const COOP_MODE_CACHE = new Map();
+function coopModeMission(mode, mapId) {
+  const D = COOP_MODES[mode], def = MAPS.find(m => m.id === mapId); if (!D || !def) return null;
+  const id = `x:${mode}:${mapId}`; let M = COOP_MODE_CACHE.get(id);
+  if (M) return M;
+  const waves = mode === 'custom' ? def.waves || 20 : D.waves;
+  M = { id, ch: -1, mode, name: D.name, map: mapId, waves, desc: D.desc, apply: D.apply, star3desc: mode === 'endless' ? '' : 'HQ never takes a hit' };
+  if (mode === 'endless') M.endless = true;
+  COOP_MODE_CACHE.set(id, M);
+  return M;
+}
+function coopModeById(id) { const m = /^x:(split|endless|bossrush|custom):([\w-]{1,40})$/.exec(id || ''); return m ? coopModeMission(m[1], m[2]) : null; }
+COOP_MISSIONS.find = function (fn) { const r = Array.prototype.find.call(this, fn); if (r) return r; for (const [mode, D] of Object.entries(COOP_MODES)) for (const def of D.maps()) { const M = coopModeMission(mode, def.id); if (M && fn(M)) return M; } return undefined; };
+COOP_MISSIONS.some = function (fn) { return !!this.find(fn); };
+
+// the lobby header and results card speak about the mode instead of a mission number
+const openCoopLobbyV12 = openCoopLobby;
+openCoopLobby = function (mapIdx, mission) {
+  openCoopLobbyV12(mapIdx, mission);
+  const M = LOB.mission; if (!M || !M.mode) return;
+  const def = MAPS.find(m => m.id === M.map) || MAPS[0], h = coopLobbyEl.querySelector('h1'), tag = coopLobbyEl.querySelector('.tag');
+  if (h) h.textContent = M.name;
+  if (tag) tag.textContent = `${def.name} · ${M.endless ? 'no wave limit' : M.waves + ' waves'}${def.lanes ? ` · ${def.lanes.length + 1} entrances` : ''} · ${M.desc}`;
+};
+const showCoopResultsV12 = showCoopResults;
+showCoopResults = function (won) {
+  showCoopResultsV12(won);
+  const M = S.coop && S.coop.mission; if (!M || !M.mode) return;
+  const card = coopResEl.querySelector('.card'); if (!card) return;
+  const tag = card.querySelector('.tag'); if (tag) tag.textContent = `${M.name} · ${S.map.def.name} · reached wave ${S.wave}`;
+  if (M.endless) {
+    card.querySelectorAll('.co-stars,.co-s3').forEach(n => n.remove());
+    const L = V10().lb['coopEndless:' + S.map.def.id] || [], best = L[0] ? L[0].w : S.wave;
+    const b = el('div', 'co-best', S.wave >= best ? `🏆 New best on this map: wave ${S.wave}!` : `Best on this map: wave ${best}`);
+    card.querySelector('h1').insertAdjacentElement('afterend', b);
+  }
+  for (const b of card.querySelectorAll('button')) if (b.textContent === 'Campaign') { const nb = btn('btn-wood btn-big', 'Co-op modes', () => { coopResEl.hidden = true; goHome(); setTimeout(() => openCoopModes(M.mode), 300); }); nb.style.width = 'auto'; b.replaceWith(nb); }
+};
+const gameOverV12c = gameOver;
+gameOver = function () {
+  const M = S && S.coop && S.coop.mission;
+  if (M && M.endless && S.mode === 'playing') lbAdd('coopEndless:' + S.map.def.id, { w: S.wave, d: todayKey() }, (a, b) => b.w - a.w);
+  return gameOverV12c();
+};
+
+// ----- the co-op modes screen -----
+document.head.insertAdjacentHTML('beforeend', `<style>
+.cm .card{max-width:1080px;width:min(1080px,96vw);max-height:92dvh;display:flex;flex-direction:column;gap:12px}
+.cm-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.cm-tab{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 6px;border:3px solid var(--ink);border-radius:20px;background:#fff;box-shadow:0 4px 0 var(--ink),inset 0 3px 0 rgba(255,255,255,.8);font-family:var(--font-display);font-size:17px;color:var(--ink);transition:transform .3s cubic-bezier(.34,1.9,.5,1)}
+.cm-tab .i{font-size:26px;line-height:1.1}
+.cm-tab small{font-family:var(--font-body);font-size:11.5px;font-weight:800;color:var(--text-soft)}
+.cm-tab:hover{transform:translateY(-3px) rotate(-1deg)}
+.cm-tab.on{background:linear-gradient(180deg,#ffe58a,#ffc93c)}
+.cm-desc{font-size:15px;font-weight:800;color:var(--text);background:var(--paper-2);border:3px solid var(--ink);border-radius:18px;padding:10px 14px}
+.cm-maps{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;overflow-y:auto;min-height:0;padding:4px}
+.cm-map{display:flex;flex-direction:column;gap:4px;padding:6px;border:3px solid var(--ink);border-radius:18px;background:#fff;box-shadow:0 4px 0 var(--ink);text-align:left;color:var(--text);transition:transform .3s cubic-bezier(.34,1.9,.5,1)}
+.cm-map:hover,.cm-map:focus-visible{transform:translateY(-3px)}
+.cm-map canvas{width:100%;aspect-ratio:960/624;border-radius:12px;border:2px solid var(--ink);background:#7cc24e}
+.cm-map b{font-family:var(--font-display);font-size:16px;color:var(--ink);font-weight:400}
+.cm-map span{font-size:12.5px;font-weight:800;color:var(--text-soft)}
+.cm-empty{padding:24px;text-align:center;font-weight:800;color:var(--text-soft)}
+.co-best{font-family:var(--font-display);font-size:22px;color:#c98a00;text-align:center}
+@media (max-width:760px){.cm-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}.cm-tab{font-size:14px}}
+</style>`);
+const coopModesEl = el('div', 'modal cm'); coopModesEl.hidden = true; document.body.appendChild(coopModesEl);
+const CM = { mode: 'quick', thumbs: new Map(), queue: [] };
+const CM_TABS = [['quick', '🎯', 'Quick Match', '30 waves'], ['split', '🔱', 'Split Lanes', 'two roads'], ['endless', '♾️', 'Endless', 'no limit'], ['bossrush', '☠️', 'Boss Rush', '20 waves'], ['custom', '✏️', 'Your Maps', 'Map Maker']];
+function openCoopModes(mode) {
+  coopCampEl.hidden = true; ui.modesModal.hidden = true;
+  if (mode) CM.mode = mode;
+  drawCoopModes(); coopModesEl.hidden = false;
+  setTimeout(() => { const n = coopModesEl.querySelector('.cm-tab.on'); if (n) n.focus({ preventScroll: true }); }, 30);
+}
+function cmThumb(def) {
+  let c = CM.thumbs.get(def.id);
+  if (!c) { c = renderBackground(buildMap(def), .2); CM.thumbs.set(def.id, c); }
+  return c;
+}
+function drawCoopModes() {
+  coopModesEl.innerHTML = '';
+  const card = el('div', 'card'), top = el('div', 'flex items-start justify-between gap-3'), tl = el('div');
+  tl.appendChild(el('h1', null, 'Co-op Modes'));
+  tl.appendChild(el('div', 'tag', 'Pick a way to play together, then a map. Both of you choose six towers in the lobby.'));
+  top.appendChild(tl);
+  const right = el('div', 'flex items-center gap-2 flex-wrap');
+  right.appendChild(btn('btn-gold btn-sm', 'Campaign', () => { coopModesEl.hidden = true; openCoopCamp(); }));
+  right.appendChild(btn('btn-wood btn-sm', 'Back', () => { coopModesEl.hidden = true; }));
+  top.appendChild(right); card.appendChild(top);
+  const tabs = el('div', 'cm-tabs');
+  for (const [id, ic, name, sub] of CM_TABS) {
+    const b = el('button', 'cm-tab' + (CM.mode === id ? ' on' : ''));
+    b.appendChild(el('span', 'i', ic)); b.appendChild(document.createTextNode(name)); b.appendChild(el('small', null, sub));
+    b.addEventListener('click', () => { if (CM.mode === id) return; CM.mode = id; Sfx.play('click', true); drawCoopModes(); const n = coopModesEl.querySelector('.cm-tab.on'); if (n) n.focus({ preventScroll: true }); });
+    tabs.appendChild(b);
+  }
+  card.appendChild(tabs);
+  const D = COOP_MODES[CM.mode];
+  card.appendChild(el('div', 'cm-desc', CM.mode === 'quick' ? 'The classic: 30 waves on any map, with random weather and twists along the way.' : D.desc));
+  const grid = el('div', 'cm-maps');
+  const list = CM.mode === 'quick' ? MAPS.filter(m => !m.custom) : D.maps();
+  if (CM.mode === 'custom') {
+    const mk = el('button', 'cm-map'); mk.innerHTML = '<div style="aspect-ratio:960/624;display:flex;align-items:center;justify-content:center;font-size:42px;border:2px dashed var(--ink);border-radius:12px;background:var(--paper-2)">＋</div><b>New map</b><span>Draw roads and add entrances</span>';
+    mk.addEventListener('click', () => { coopModesEl.hidden = true; MM.coopNext = true; openMapMaker(-1); });
+    grid.appendChild(mk);
+  }
+  if (!list.length && CM.mode !== 'custom') grid.appendChild(el('div', 'cm-empty', 'No maps here yet.'));
+  CM.queue = [];
+  for (const def of list) {
+    const idx = MAPS.indexOf(def), b = el('button', 'cm-map'), cv = el('canvas'); cv.width = 192; cv.height = 125;
+    b.appendChild(cv); b.appendChild(el('b', null, def.name));
+    const ent = def.lanes ? def.lanes.length + 1 : 1;
+    let sub = `${THEMES[def.theme].name} · ${def.diff}${ent > 1 ? ` · ${ent} entrances` : ''}`;
+    if (CM.mode === 'endless') { const L = V10().lb['coopEndless:' + def.id] || []; if (L[0]) sub += ` · best wave ${L[0].w}`; }
+    b.appendChild(el('span', null, sub));
+    b.addEventListener('click', () => {
+      Sfx.unlock(); Sfx.play('click', true); coopModesEl.hidden = true;
+      if (CM.mode === 'quick') openCoopLobby(idx); else openCoopLobby(idx, coopModeMission(CM.mode, def.id));
+    });
+    if (CM.mode === 'custom') {
+      const ed = el('span', null, '✏️ Edit'); ed.style.cssText = 'color:var(--olive-d);text-decoration:underline;cursor:pointer';
+      ed.addEventListener('click', ev => { ev.stopPropagation(); coopModesEl.hidden = true; MM.coopNext = true; openMapMaker(customDefs().findIndex(d => d.id === def.id)); });
+      b.appendChild(ed);
+    }
+    grid.appendChild(b); CM.queue.push([cv, def]);
+  }
+  card.appendChild(grid); coopModesEl.appendChild(card);
+  // thumbnails paint a few per frame so the screen opens instantly
+  const step = () => { if (coopModesEl.hidden) return; for (let k = 0; k < 3 && CM.queue.length; k++) { const [cv, def] = CM.queue.shift(); if (cv.isConnected) cv.getContext('2d').drawImage(cmThumb(def), 0, 0, cv.width, cv.height); } if (CM.queue.length) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+coopModesEl.addEventListener('click', ev => { if (ev.target === coopModesEl) coopModesEl.hidden = true; });
+window.addEventListener('keydown', ev => { if (!coopModesEl.hidden && (ev.key === 'Escape' || ev.key === 'GoBack' || remoteKey(ev) === 'back')) { coopModesEl.hidden = true; ev.stopImmediatePropagation(); } }, true);
+// the co-op campaign gets a big way into the modes
+const drawCoopCampV12 = drawCoopCamp;
+drawCoopCamp = function () {
+  drawCoopCampV12();
+  for (const b of coopCampEl.querySelectorAll('button')) if (b.textContent === 'Quick match') { const nb = btn('btn-gold btn-sm', '🎮 More co-op modes', () => openCoopModes()); b.replaceWith(nb); }
+};
+// the Battle Modes card description lists the new modes
+MODES.coop.desc = 'Two commanders, one map, separate wallets. A 12-mission campaign, plus Quick Match, Split Lanes, Endless, Boss Rush and your own maps.';
+
+// ----- Map Maker: draw the main road, then add as many extra entrances as you like -----
+const MM_LANES_MAX = 6;
+MM.lanes = []; MM.edit = -1;
+function mmLaneOk(L) {
+  if (!L || L.length < 3) return false;
+  const [c, r] = L[L.length - 1]; return MM.tiles.some(([a, b]) => a === c && b === r);
+}
+function mmLanePts(L) {
+  const [c0, r0] = L[0], [c1, r1] = L[1] || L[0], dc = c1 - c0, dr = r1 - r0;
+  // step back off the board on whichever edge the lane starts from
+  let start = c0 === 0 && dc >= 0 ? [-1, r0] : c0 === COLS - 1 && dc <= 0 ? [COLS, r0] : r0 === 0 && dr >= 0 ? [c0, -1] : [c0, ROWS];
+  if (c0 === 0 && dc > 0) start = [-1, r0]; else if (c0 === COLS - 1 && dc < 0) start = [COLS, r0]; else if (r0 === 0 && dr > 0) start = [c0, -1]; else if (r0 === ROWS - 1 && dr < 0) start = [c0, ROWS];
+  const all = [start, ...L], pts = [all[0]];
+  for (let i = 1; i < all.length - 1; i++) { const p = all[i - 1], c = all[i], n = all[i + 1]; if (Math.sign(c[0] - p[0]) !== Math.sign(n[0] - c[0]) || Math.sign(c[1] - p[1]) !== Math.sign(n[1] - c[1])) pts.push(c); }
+  pts.push(all[all.length - 1]);
+  return pts;
+}
+const mmDefV12 = mmDef;
+mmDef = function () {
+  const d = mmDefV12(), lanes = MM.lanes.filter(mmLaneOk);
+  if (lanes.length) { d.lanes = lanes.map(mmLanePts); d.laneTiles = lanes.map(L => L.slice()); d.id = 'custom-' + hashStr(JSON.stringify([MM.tiles, lanes]) + MM.theme); }
+  return d;
+};
+const mmProblemV12 = mmProblem;
+mmProblem = function () {
+  const p = mmProblemV12(); if (p) return p;
+  const bad = MM.lanes.findIndex(L => L.length && !mmLaneOk(L));
+  if (bad >= 0) return `Entrance ${bad + 2} isn't finished: keep drawing until it touches the main road.`;
+  return null;
+};
+openMapMaker = function (idx = -1) {
+  MM.editIdx = idx; MM.edit = -1;
+  const src = idx >= 0 ? customDefs()[idx] : null;
+  if (src) { MM.theme = src.theme; MM.waves = src.waves; MM.diff = src.diff; MM.name = src.name; MM.tiles = src.tiles ? src.tiles.slice() : []; MM.lanes = Array.isArray(src.laneTiles) ? src.laneTiles.map(L => L.slice()) : []; }
+  else { MM.tiles = []; MM.lanes = []; MM.name = 'My Map'; }
+  { const old = document.getElementById('mapMaker'); if (old) old.remove(); }
+  const modal = el('div', 'modal mm'); modal.id = 'mapMaker';
+  const card = el('div', 'card'); card.style.maxWidth = '1100px'; modal.appendChild(card);
+  card.innerHTML = `<div class="flex items-start justify-between gap-3"><div><h1>Map Maker</h1><div class="tag">Draw the main road from the left edge, one tile at a time. HQ goes where it ends. Then add extra entrances from any edge that join the main road.</div></div><button class="btn btn-wood btn-sm" id="mmBack">Back</button></div>`;
+  const wrap = el('div', 'mm-wrap'); card.appendChild(wrap);
+  const cvs = el('canvas', 'mm-cv'); cvs.width = W; cvs.height = H; wrap.appendChild(cvs); MM.cv = cvs;
+  const side = el('div', 'mm-side'); wrap.appendChild(side);
+  const nameIn = el('input', 'mm-name'); nameIn.value = MM.name; nameIn.maxLength = 24; nameIn.placeholder = 'Map name';
+  nameIn.addEventListener('input', () => { MM.name = nameIn.value.replace(/[<>]/g, ''); });
+  side.appendChild(el('label', 'mm-l', 'Name')); side.appendChild(nameIn);
+  const seg = (label, opts, key, after) => {
+    side.appendChild(el('label', 'mm-l', label));
+    const sg = el('div', 'seg mm-seg');
+    for (const [v, n] of opts) { const b = el('button', MM[key] === v ? 'on' : '', n); b.addEventListener('click', () => { MM[key] = v; Sfx.play('click', true); for (const x of sg.children) x.classList.toggle('on', x === b); if (after) after(); }); sg.appendChild(b); }
+    side.appendChild(sg);
+  };
+  seg('Theme', [['meadow', '🌲'], ['winter', '❄'], ['tropical', '🌴'], ['desert', '🏜'], ['halloween', '🌃'], ['volcano', '🌋']], 'theme', () => mmDraw());
+  seg('Waves', [[10, '10'], [20, '20'], [30, '30']], 'waves');
+  seg('Difficulty', [['Easy', 'Easy'], ['Medium', 'Med'], ['Hard', 'Hard']], 'diff');
+  side.appendChild(el('label', 'mm-l', 'Roads'));
+  const roads = el('div', 'mm-roads'); side.appendChild(roads); MM.roadsEl = roads;
+  const msg = el('p', 'note mm-msg'); side.appendChild(msg); MM.msg = msg;
+  const row = el('div', 'flex gap-2 flex-wrap');
+  row.appendChild(btn('btn-wood btn-sm', 'Undo', () => { const t = mmCur(); t.pop(); Sfx.play('click', true); mmDraw(); }));
+  row.appendChild(btn('btn-wood btn-sm', 'Clear', () => { if (MM.edit >= 0) MM.lanes[MM.edit] = []; else { MM.tiles = []; MM.lanes = []; MM.edit = -1; } Sfx.play('click', true); mmDraw(); }));
+  side.appendChild(row);
+  const play = btn('btn-go btn-big mt-3', MM.coopNext ? 'Save & play co-op' : 'Save & Play', () => {
+    const prob = mmProblem(); if (prob) { Sfx.play('error', true); msg.textContent = prob; return; }
+    MM.lanes = MM.lanes.filter(L => L.length);
+    const def = mmDef(); def.tiles = MM.tiles.slice();
+    const list = customDefs().slice();
+    if (MM.editIdx >= 0) list[MM.editIdx] = def; else { list.unshift(def); if (list.length > CUSTOM_MAX) list.length = CUSTOM_MAX; }
+    profile.custom = list; saveProfile(); loadCustomMaps();
+    const i = MAPS.findIndex(m => m.id === def.id);
+    modal.remove(); ui.modesModal.hidden = true; Sfx.play('start', true);
+    if (MM.coopNext) { MM.coopNext = false; openCoopLobby(i, coopModeMission('custom', def.id)); }
+    else startRun('classic', i);
+  });
+  side.appendChild(play);
+  const saved = customDefs();
+  if (saved.length) {
+    side.appendChild(el('label', 'mm-l', 'Your maps'));
+    const list = el('div', 'mm-list');
+    saved.forEach((d, i) => { const b = el('button', 'mm-saved', `${d.name} · ${THEMES[d.theme].name}${d.lanes ? ` · ${d.lanes.length + 1} entrances` : ''}`); b.addEventListener('click', () => { modal.remove(); openMapMaker(i); }); list.appendChild(b); });
+    side.appendChild(list);
+  }
+  const at = ev => { const r = cvs.getBoundingClientRect(); return [Math.floor((ev.clientX - r.left) / r.width * COLS), Math.floor((ev.clientY - r.top) / r.height * ROWS)]; };
+  let drag = false;
+  cvs.addEventListener('pointerdown', ev => { drag = true; cvs.setPointerCapture(ev.pointerId); mmTry(at(ev)); });
+  cvs.addEventListener('pointermove', ev => { if (drag) mmTry(at(ev)); });
+  cvs.addEventListener('pointerup', () => { drag = false; });
+  card.querySelector('#mmBack').addEventListener('click', () => { modal.remove(); if (MM.coopNext) { MM.coopNext = false; openCoopModes('custom'); } });
+  document.body.appendChild(modal);
+  mmDraw();
+};
+const mmCur = () => (MM.edit >= 0 ? MM.lanes[MM.edit] : MM.tiles);
+const onRoad = (list, c, r) => list.some(([a, b]) => a === c && b === r);
+function mmTry([c, r]) {
+  if (c < 0 || r < 0 || c >= COLS || r >= ROWS) return;
+  if (MM.edit < 0) return mmTryMain(c, r);
+  const t = MM.lanes[MM.edit], last = t[t.length - 1], others = MM.lanes.filter((L, i) => i !== MM.edit);
+  if (last && last[0] === c && last[1] === r) return;
+  if (t.length > 1 && t[t.length - 2][0] === c && t[t.length - 2][1] === r) { t.pop(); mmDraw(); return; }
+  if (mmLaneOk(t)) { MM.msg.textContent = 'This entrance already joins the main road. Add another, or pick a road to edit.'; return; }
+  if (!last) {
+    if (c !== 0 && r !== 0 && c !== COLS - 1 && r !== ROWS - 1) { MM.msg.textContent = 'Start an entrance on any edge of the map.'; return; }
+    if (onRoad(MM.tiles, c, r) || others.some(L => onRoad(L, c, r))) { MM.msg.textContent = 'Start it somewhere the road isn\'t already.'; return; }
+    t.push([c, r]); Sfx.play('tick', true); mmDraw(); return;
+  }
+  if (Math.abs(last[0] - c) + Math.abs(last[1] - r) !== 1) return;
+  if (onRoad(t, c, r) || others.some(L => onRoad(L, c, r))) { MM.msg.textContent = 'Roads can\'t cross each other.'; return; }
+  // touching the main road finishes the entrance
+  if (onRoad(MM.tiles, c, r)) {
+    if (t.length < 2) { MM.msg.textContent = 'Make the entrance at least two tiles long before it joins.'; return; }
+    const [bc, br] = MM.tiles[MM.tiles.length - 1];
+    if (Math.abs(bc - c) <= 1 && Math.abs(br - r) <= 1 && !(bc === c && br === r)) { MM.msg.textContent = 'Join the road a little further from HQ.'; return; }
+    t.push([c, r]); Sfx.play('cash', true); mmDraw(); return;
+  }
+  t.push([c, r]); Sfx.play('tick', true); mmDraw();
+}
+function mmTryMain(c, r) {
+  const t = MM.tiles, last = t[t.length - 1], lanes = MM.lanes.filter(L => L.length);
+  if (last && last[0] === c && last[1] === r) return;
+  if (t.length > 1 && t[t.length - 2][0] === c && t[t.length - 2][1] === r) { t.pop(); mmDraw(); return; }
+  if (!last) { if (c !== 0) { MM.msg.textContent = 'Start on the left edge.'; return; } t.push([c, r]); mmDraw(); return; }
+  if (Math.abs(last[0] - c) + Math.abs(last[1] - r) !== 1) return;
+  if (onRoad(t, c, r)) { MM.msg.textContent = 'The road can\'t cross itself.'; return; }
+  if (lanes.some(L => onRoad(L.slice(0, -1), c, r))) { MM.msg.textContent = 'An entrance is already there.'; return; }
+  for (let i = 0; i < t.length - 2; i++) if (Math.abs(t[i][0] - c) + Math.abs(t[i][1] - r) === 1) { MM.msg.textContent = 'Leave a gap between roads.'; return; }
+  t.push([c, r]); Sfx.play('tick', true); mmDraw();
+}
+const LANE_COLS = ['#ff8a3a', '#4fd8ff', '#c77dff', '#ffd23f', '#7ed957', '#ff6fb5'];
+function mmRoadsUi() {
+  const R = MM.roadsEl; if (!R) return;
+  R.innerHTML = '';
+  const add = (label, on, fn, col) => { const b = el('button', 'mm-road' + (on ? ' on' : ''), label); if (col) b.style.setProperty('--lc', col); b.addEventListener('click', fn); R.appendChild(b); };
+  add('Main road', MM.edit < 0, () => { MM.edit = -1; Sfx.play('click', true); mmDraw(); });
+  MM.lanes.forEach((L, i) => add(`Entrance ${i + 2}${mmLaneOk(L) ? ' ✓' : ''}`, MM.edit === i, () => { MM.edit = i; Sfx.play('click', true); mmDraw(); }, LANE_COLS[i % LANE_COLS.length]));
+  if (MM.lanes.length < MM_LANES_MAX) add('＋ Add entrance', false, () => {
+    if (mmProblemV12()) { Sfx.play('error', true); MM.msg.textContent = 'Finish the main road first, then add entrances.'; return; }
+    MM.lanes = MM.lanes.filter(L => L.length || MM.lanes.indexOf(L) === MM.edit); MM.lanes.push([]); MM.edit = MM.lanes.length - 1; Sfx.play('click', true); mmDraw();
+  });
+  if (MM.edit >= 0) add('🗑 Remove this entrance', false, () => { MM.lanes.splice(MM.edit, 1); MM.edit = -1; Sfx.play('click', true); mmDraw(); });
+}
+mmDraw = function () {
+  const g = MM.cv.getContext('2d'), th = THEMES[MM.theme];
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = th.ground; g.fillRect(0, 0, W, H); g.fillStyle = th.check;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if ((r + c) & 1) { rr(g, c * T + .5, r * T + .5, T - 1, T - 1, 11); g.fill(); }
+  g.strokeStyle = 'rgba(43,36,24,.12)'; g.lineWidth = 1; for (let c = 1; c < COLS; c++) { g.beginPath(); g.moveTo(c * T, 0); g.lineTo(c * T, H); g.stroke(); } for (let r = 1; r < ROWS; r++) { g.beginPath(); g.moveTo(0, r * T); g.lineTo(W, r * T); g.stroke(); }
+  const t = MM.tiles, px = ([c, r]) => ({ x: (c + .5) * T, y: (r + .5) * T });
+  const road = (pts, col) => {
+    if (pts.length < 2) { if (pts.length) { const p = pts[0]; circle(g, p.x, p.y, 17); g.fillStyle = col || th.road.base; g.fill(); ol(g, 3); } return; }
+    const path = () => { g.beginPath(); g.moveTo(pts[0].x, pts[0].y); for (const p of roundedPath(pts, T * .9)) g.lineTo(p.x, p.y); };
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    path(); g.lineWidth = 40; g.strokeStyle = OUT; g.stroke(); path(); g.lineWidth = 33; g.strokeStyle = th.road.base; g.stroke(); path(); g.lineWidth = 12; g.strokeStyle = col || th.road.mid; g.stroke();
+  };
+  if (!t.length && MM.edit < 0) { g.fillStyle = 'rgba(255,255,255,.35)'; for (let r = 1; r < ROWS - 1; r++) { rr(g, 4, r * T + 4, T - 8, T - 8, 8); g.fill(); } }
+  MM.lanes.forEach((L, i) => road(L.map(px), LANE_COLS[i % LANE_COLS.length]));
+  if (t.length) {
+    road(tilesToPts(t).map(px));
+    const [ec, er] = t[t.length - 1]; drawBase(g, { def: { theme: MM.theme }, base: { x: (ec + .5) * T, y: (er + .5) * T } }, 0, 1);
+  }
+  // where the next tile can go
+  const cur = mmCur(), last = cur && cur[cur.length - 1];
+  if (MM.edit >= 0 && cur && !cur.length) {
+    g.fillStyle = 'rgba(255,255,255,.35)';
+    for (let c = 0; c < COLS; c++) for (const r of [0, ROWS - 1]) if (!onRoad(t, c, r)) { rr(g, c * T + 6, r * T + 6, T - 12, T - 12, 8); g.fill(); }
+    for (let r = 1; r < ROWS - 1; r++) for (const c of [0, COLS - 1]) if (!onRoad(t, c, r)) { rr(g, c * T + 6, r * T + 6, T - 12, T - 12, 8); g.fill(); }
+  }
+  if (last && !(MM.edit >= 0 && mmLaneOk(cur))) for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const c = last[0] + dc, r = last[1] + dr; if (c < 0 || r < 0 || c >= COLS || r >= ROWS || onRoad(cur, c, r)) continue; rr(g, c * T + 6, r * T + 6, T - 12, T - 12, 8); g.strokeStyle = MM.edit >= 0 && onRoad(t, c, r) ? '#ffe14d' : 'rgba(255,255,255,.8)'; g.setLineDash([5, 5]); g.lineWidth = MM.edit >= 0 && onRoad(t, c, r) ? 3 : 2; g.stroke(); g.setLineDash([]); }
+  mmRoadsUi();
+  const p = mmProblem();
+  MM.msg.textContent = MM.edit >= 0 && !mmLaneOk(cur) ? (cur.length ? 'Keep drawing until the entrance touches the main road (yellow tiles).' : 'Click a tile on any edge to start this entrance.') : p || `Looks great! ${t.length} tiles of road${MM.lanes.length ? ` and ${MM.lanes.length + 1} entrances` : ''}. Hit Save & Play.`;
+};
+document.head.insertAdjacentHTML('beforeend', `<style>
+.mm-roads{display:flex;flex-wrap:wrap;gap:6px}
+.mm-road{--lc:#c9a06a;font-weight:900;font-size:13px;padding:5px 10px;border:2.5px solid var(--ink);border-radius:999px;background:#fff;box-shadow:0 2px 0 var(--ink),inset 4px 0 0 var(--lc);color:var(--text)}
+.mm-road.on{background:var(--gold)}
+</style>`);
+// ---------- v12 UI: a rounder, easier-to-read battle HUD, bouncy loading screens, controller setup, and redeem codes ----------
+const V12S = () => { const v = V10(); if (!v.v12 || typeof v.v12 !== 'object') v.v12 = {}; return v.v12; };
+
+// ----- sounds for the new screens -----
+const sfxPlayV12 = Sfx.play;
+Sfx.play = function (name, ui = false) {
+  const own = { bloop: 1, boing: 1, ready: 1, bubble: 1 };
+  if (!own[name]) return sfxPlayV12.call(this, name, ui);
+  if (!(profile.settings.sfx > 0) || !this.ctx || this.ctx.state !== 'running') return;
+  const now = performance.now(); if (now - (this.last[name] || 0) < 60) return; this.last[name] = now;
+  const v = 1 + (Math.random() - .5) * .1;
+  switch (name) {
+    case 'bloop': this.tone(380 * v, 900 * v, .14, .07, 'sine', 0, { bend: .6 }); this.tone(760 * v, 1500 * v, .08, .02, 'triangle', .02); break;
+    case 'bubble': this.tone(600 * v, 1400 * v, .07, .035, 'sine'); break;
+    case 'boing': this.tone(150, 420, .28, .12, 'sine', 0, { bend: .35 }); this.tone(420, 260, .25, .05, 'triangle', .06); this.thump(90, .2, .2); break;
+    case 'ready': this.arp([523, 659, 784, 1047], .07, .3, .06, 'triangle', { rev: .4 }); this.tone(1568, 1568, .5, .025, 'sine', .3, { rev: .5 }); break;
+  }
+};
+
+// ----- battle HUD: bigger text, stronger contrast, softer rounder shapes, and room for every tower -----
+document.head.insertAdjacentHTML('beforeend', `<style>
+.side{border-radius:30px;box-shadow:0 7px 0 rgba(43,36,24,.45),inset 0 4px 0 rgba(255,255,255,.7)}
+.side>.chip{font-size:15px;border-radius:999px}
+.stat{border-radius:22px;box-shadow:0 4px 0 var(--ink),inset 0 4px 0 rgba(255,255,255,.9),inset 0 -6px 0 rgba(43,36,24,.06)}
+.stat .lbl{font-size:12px;color:#5a4a30}
+.stat .val{font-size:24px}
+.stat .sub{font-size:12px;color:#5a4a30;min-height:13px}
+.cbar{height:26px;box-shadow:inset 0 3px 0 rgba(0,0,0,.08)}
+.cbar span{font-size:12.5px}
+.cbar i{border-radius:999px;background:linear-gradient(180deg,#b597ff,#8a6ae0 55%,#ff6fb5)}
+.callins button{height:30px;padding:0 9px;font-size:14px;box-shadow:0 3px 0 var(--ink),inset 0 3px 0 rgba(255,255,255,.8)}
+.callins button b{font-size:12px}
+.callins button:disabled{opacity:.55;filter:grayscale(.4)}
+.side-ctl .btn{font-size:14px;border-radius:999px;box-shadow:0 3px 0 var(--ink),inset 0 3px 0 rgba(255,255,255,.55)}
+.slot-h{font-size:19px} .slot-h small{font-size:12.5px;color:#5a4a30}
+.shop{grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+.tw-tile{border-radius:18px;padding:3px 1px 4px;box-shadow:0 3px 0 var(--ink),inset 0 3px 0 rgba(255,255,255,.75)}
+.tw-tile:hover{transform:translateY(-4px) scale(1.06) rotate(-2deg)}
+.tw-tile canvas{width:38px;height:38px}
+.tw-tile .c{font-size:14.5px;text-shadow:0 1px 0 #fff}
+.tw-tile.locked .c,.tw-tile.banned .c{font-size:11px}
+.tw-tile .lock{top:14px}
+.kbd{top:2px;left:3px;font-size:10.5px;font-weight:900;color:#3a2e1c;background:rgba(255,255,255,.85);border-radius:6px;padding:0 3px;line-height:13px}
+.shop-view{inset:0 0 112px}
+.info{height:104px;border-radius:20px;box-shadow:inset 0 4px 0 rgba(0,0,0,.04)}
+.info .ttl{font-size:20px}
+.info .meta{font-size:13.5px}
+.info p{font-size:13.5px;line-height:1.32;color:#4a3c26;-webkit-line-clamp:3}
+.tw-head{border-radius:20px;box-shadow:inset 0 4px 0 rgba(255,255,255,.5)}
+.rows{font-size:14px} .rows dt{color:#5a4a30}
+.tw-act .btn{font-size:16px;border-radius:18px}
+.tgt-l{font-size:13px} .tgt-row button{font-size:13px;padding:5px 4px;box-shadow:0 2px 0 var(--ink)}
+.branch-row button{border-radius:18px} .branch-row .bn{font-size:15px} .branch-row .bb{font-size:12.5px;color:#4a3c26}
+.relic-now{font-size:13.5px}
+@media (max-height:760px){.shop{gap:4px}.tw-tile canvas{width:32px;height:32px}.stat .val{font-size:21px}}
+body.touch .stat .val{font-size:22px}
+.co-panel .co-cash{text-shadow:0 2px 0 rgba(0,0,0,.15)}
+/* bouncy loading screen */
+#loading.bubbly .load-card{animation:cardBounce .8s cubic-bezier(.3,1.6,.5,1) both}
+@keyframes cardBounce{0%{transform:translateY(60px) scale(.82,.7);opacity:0}55%{transform:translateY(-10px) scale(1.04,.96);opacity:1}75%{transform:translateY(3px) scale(.98,1.03)}100%{transform:none}}
+#loading.bubbly .load-bar{height:26px;border-radius:999px;box-shadow:inset 0 4px 0 rgba(0,0,0,.08),0 3px 0 var(--ink)}
+#loading.bubbly .load-bar > *:first-child{border-radius:999px}
+#loading .lb-bub{position:absolute;bottom:-40px;border-radius:999px;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.9),rgba(255,255,255,.25) 40%,rgba(255,255,255,.08) 70%);border:2px solid rgba(255,255,255,.55);pointer-events:none;z-index:0;animation:bubUp linear infinite}
+@keyframes bubUp{0%{transform:translate(0,0) scale(.6);opacity:0}10%{opacity:.85}100%{transform:translate(var(--dx),-115vh) scale(1.1);opacity:0}}
+#loading.bubbly .load-intel span{animation:chipPop .5s cubic-bezier(.3,1.9,.5,1) both}
+@keyframes chipPop{0%{transform:scale(0) rotate(-8deg);opacity:0}70%{transform:scale(1.15) rotate(2deg);opacity:1}100%{transform:none}}
+#loading.bubbly #loadPct{display:inline-block;animation:pctBop .5s ease-in-out infinite alternate}
+@keyframes pctBop{from{transform:translateY(0) scale(1)}to{transform:translateY(-3px) scale(1.06)}}
+@media (prefers-reduced-motion:reduce){#loading .lb-bub{display:none}#loading.bubbly .load-card,#loading.bubbly #loadPct{animation:none}}
+</style>`);
+
+// ----- loading screens: the card bounces in, chips pop, bubbles float up, and the bar bloops as it fills -----
+const LOADFX = { timers: [], bubs: null };
+const showLoadingV12 = showLoading;
+showLoading = function (...args) {
+  const r = showLoadingV12(...args);
+  try {
+    for (const t of LOADFX.timers) clearTimeout(t); LOADFX.timers = [];
+    ui.loading.classList.add('bubbly');
+    if (!LOADFX.bubs) { LOADFX.bubs = el('div'); LOADFX.bubs.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0'; ui.loadCard.parentElement.insertBefore(LOADFX.bubs, ui.loadCard); }
+    LOADFX.bubs.innerHTML = '';
+    if (!REDUCED) for (let i = 0; i < 16; i++) { const b = el('i', 'lb-bub'), s = 10 + Math.random() * 34; b.style.cssText = `left:${Math.random() * 100}%;width:${s}px;height:${s}px;--dx:${(Math.random() - .5) * 120}px;animation-duration:${5 + Math.random() * 6}s;animation-delay:${-Math.random() * 8}s`; LOADFX.bubs.appendChild(b); }
+    const ms = parseFloat(ui.loading.style.getPropertyValue('--load-ms')) || 3800, at = (t, fn) => LOADFX.timers.push(setTimeout(() => { if (!ui.loading.hidden) fn(); }, t));
+    at(120, () => Sfx.play('boing', true));
+    const chips = ui.loading.querySelectorAll('.load-intel span');
+    chips.forEach((c, i) => at(900 + i * 120, () => Sfx.play('bubble', true)));
+    if (ms > 1000) for (const k of [.25, .5, .75]) at(ms * k, () => Sfx.play('bloop', true));
+    at(ms + 40, () => Sfx.play('ready', true));
+  } catch (e) { console.error(e); }
+  return r;
+};
+
+// ----- controllers: see what's connected, test every button, and rebind them -----
+const PAD_LABEL = { a: 'A', b: 'B', x: 'X', y: 'Y', lb: 'LB', rb: 'RB', lt: 'LT', rt: 'RT', view: 'View ⧉', menu: 'Menu ☰', ls: 'L-stick click', rs: 'R-stick click', up: 'D-pad up', down: 'D-pad down', left: 'D-pad left', right: 'D-pad right' };
+const PAD_DOES = { a: 'Select · build · upgrade', b: 'Back · cancel', x: 'Sell', y: 'Targeting', lb: 'Previous tower · tab', rb: 'Next tower · tab', lt: 'Specialise (left)', rt: 'Specialise (right)', view: 'Start the next wave', menu: 'Pause · settings', ls: '—', rs: 'Specialist ability', up: 'Move up', down: 'Move down', left: 'Move left', right: 'Move right' };
+const padMap = () => { const m = V12S().padMap; return m && typeof m === 'object' ? m : null; };
+const PADX = { open: false, listen: null, test: false, raf: 0, el: null, last: {} };
+const padReadV12 = padRead;
+padRead = function (gp, now) {
+  if (PADX.test || PADX.listen) return; // the controller screen is reading the buttons itself
+  const m = padMap();
+  if (!m) return padReadV12(gp, now);
+  const B = PAD_BTN.map((n, k) => { const p = Number.isInteger(m[n]) ? m[n] : k; return gp.buttons[p]; });
+  return padReadV12({ index: gp.index, id: gp.id, mapping: gp.mapping, buttons: B, axes: gp.axes, connected: true, vibrationActuator: gp.vibrationActuator }, now);
+};
+// Android TV may also turn a controller's B press into a system Back; don't go back twice
+const padFireV12 = padFire;
+padFire = function (i, n, repeat) { if (n === 'b') Input.lastB = performance.now(); return padFireV12(i, n, repeat); };
+const appBackV12 = window.appBack;
+window.appBack = function () { if (performance.now() - (Input.lastB || 0) < 450) return 'ok'; return appBackV12(); };
+// Android asks the page to free memory when the device runs low
+window.appTrim = function () { try { V9.spr.clear(); glowCache.clear(); CM.thumbs.clear(); CC.thumbs.clear(); COOP_MODE_CACHE.clear(); } catch { /* best effort */ } };
+
+document.head.insertAdjacentHTML('beforeend', `<style>
+.px .card{max-width:980px;width:min(980px,96vw);max-height:92dvh;overflow-y:auto}
+.px-pads{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.px-pad{display:flex;align-items:center;gap:8px;padding:6px 12px;border:3px solid var(--ink);border-radius:999px;background:#fff;font-weight:900;font-size:14px;box-shadow:0 3px 0 var(--ink)}
+.px-pad i{width:14px;height:14px;border-radius:999px;border:2px solid var(--ink)}
+.px-pad small{font-weight:800;color:var(--text-soft);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.px-none{padding:14px;border:3px dashed var(--ink);border-radius:18px;font-weight:800;color:var(--text-soft);text-align:center;margin:8px 0}
+.px-body{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.px-test{background:var(--paper-2);border:3px solid var(--ink);border-radius:22px;padding:12px}
+.px-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+.px-b{display:flex;align-items:center;justify-content:center;min-height:38px;border:3px solid var(--ink);border-radius:14px;background:#fff;font-weight:900;font-size:13px;transition:transform .12s,background .12s}
+.px-b.on{background:#7ed957;transform:scale(1.08)}
+.px-b.on.p2{background:#ffb23f}
+.px-sticks{display:flex;gap:16px;justify-content:center;margin-top:10px}
+.px-stick{position:relative;width:74px;height:74px;border:3px solid var(--ink);border-radius:999px;background:#fff}
+.px-stick i{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:999px;background:var(--ink);left:50%;top:50%}
+.px-trig{display:flex;gap:10px;margin-top:10px}
+.px-trig div{flex:1;height:14px;border:2.5px solid var(--ink);border-radius:999px;background:#fff;overflow:hidden}
+.px-trig b{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffd23f,#ff8a3a)}
+.px-binds{display:grid;grid-template-columns:auto 1fr auto;gap:6px 10px;align-items:center;font-size:14px}
+.px-binds .k{font-family:var(--font-display);font-size:15px;color:var(--ink)}
+.px-binds .d{font-weight:800;color:var(--text-soft)}
+.px-binds button{min-width:104px}
+.px-binds button.listen{background:#ffd23f;animation:jelly .6s ease infinite}
+.px-msg{font-weight:900;color:var(--olive-d);min-height:20px;margin-top:8px}
+@media (max-width:820px){.px-body{grid-template-columns:1fr}}
+</style>`);
+function openControllers() {
+  ui.settings.hidden = true;
+  if (!PADX.el) { PADX.el = el('div', 'modal px'); PADX.el.hidden = true; document.body.appendChild(PADX.el); PADX.el.addEventListener('click', ev => { if (ev.target === PADX.el) closeControllers(); }); }
+  PADX.open = true; PADX.test = false; PADX.listen = null;
+  drawControllers(); PADX.el.hidden = false;
+  cancelAnimationFrame(PADX.raf); PADX.raf = requestAnimationFrame(pxTick);
+}
+function closeControllers() { PADX.open = false; PADX.test = false; PADX.listen = null; if (PADX.el) PADX.el.hidden = true; cancelAnimationFrame(PADX.raf); }
+function drawControllers() {
+  const E = PADX.el, pads = padsNow(), m = padMap() || {};
+  E.innerHTML = '';
+  const card = el('div', 'card'), top = el('div', 'flex items-start justify-between gap-3'), tl = el('div');
+  tl.appendChild(el('h1', null, 'Controllers'));
+  tl.appendChild(el('div', 'tag', 'Pair Xbox or other standard controllers over Bluetooth or USB. Test every button here, and rebind any that feel wrong.'));
+  top.appendChild(tl); top.appendChild(btn('btn-wood btn-sm', 'Back', () => closeControllers())); card.appendChild(top);
+  const list = el('div', 'px-pads');
+  if (!pads.length) card.appendChild(el('div', 'px-none', 'No controller found yet. Connect one, then press any button on it.'));
+  else pads.forEach(gp => { const p = el('div', 'px-pad'), d = el('i'); d.style.background = gp.index ? COOP.p[1].col : COOP.p[0].col; p.appendChild(d); p.appendChild(document.createTextNode(`Controller ${gp.index + 1} · ${gp.index ? 'Bravo' : 'Alpha'}`)); p.appendChild(el('small', null, (gp.mapping === 'standard' ? '' : '⚠ non-standard · ') + gp.id)); list.appendChild(p); });
+  card.appendChild(list);
+  const body = el('div', 'px-body');
+  // live tester
+  const test = el('div', 'px-test');
+  test.appendChild(el('h3', null, 'Button test'));
+  test.appendChild(el('div', 'tag', PADX.test ? 'Testing: buttons only light up here. Press View + Menu together, or the button below, to stop.' : 'Press buttons to see them light up. Turn on test mode so they don\'t also press things on this screen.'));
+  const grid = el('div', 'px-grid'); PADX.cells = {};
+  for (const n of PAD_BTN) { const c = el('div', 'px-b', { up: '↑', down: '↓', left: '←', right: '→' }[n] || PAD_LABEL[n]); grid.appendChild(c); PADX.cells[n] = c; }
+  test.appendChild(grid);
+  const sticks = el('div', 'px-sticks'); PADX.sticks = [];
+  for (let k = 0; k < 2; k++) { const s = el('div', 'px-stick'), dot = el('i'); s.appendChild(dot); sticks.appendChild(s); PADX.sticks.push(dot); }
+  test.appendChild(sticks);
+  const trig = el('div', 'px-trig'); PADX.trig = [];
+  for (let k = 0; k < 2; k++) { const t = el('div'), b = el('b'); t.appendChild(b); trig.appendChild(t); PADX.trig.push(b); }
+  test.appendChild(trig);
+  const tr = el('div', 'flex gap-2 flex-wrap mt-3');
+  tr.appendChild(btn(PADX.test ? 'btn-gold btn-sm' : 'btn-wood btn-sm', PADX.test ? 'Stop test mode' : 'Start test mode', () => { PADX.test = !PADX.test; drawControllers(); }));
+  tr.appendChild(btn('btn-wood btn-sm', 'Rumble', () => { for (const gp of padsNow()) rumble(gp.index, 300, .8); PADX.msg.textContent = 'Rumbling (if your controller supports it).'; }));
+  test.appendChild(tr);
+  body.appendChild(test);
+  // bindings
+  const bind = el('div');
+  bind.appendChild(el('h3', null, 'Button layout'));
+  const bl = el('div', 'px-binds');
+  for (const n of PAD_BTN) {
+    bl.appendChild(el('span', 'k', PAD_LABEL[n])); bl.appendChild(el('span', 'd', PAD_DOES[n]));
+    const cur = Number.isInteger(m[n]) ? m[n] : PAD_BTN.indexOf(n);
+    const b = btn('btn-wood btn-sm' + (PADX.listen === n ? ' listen' : ''), PADX.listen === n ? 'Press a button…' : `Button ${cur}${cur !== PAD_BTN.indexOf(n) ? ' ✎' : ''}`, () => { PADX.listen = PADX.listen === n ? null : n; PADX.base = pxSnapshot(); drawControllers(); });
+    bl.appendChild(b);
+  }
+  bind.appendChild(bl);
+  const br = el('div', 'flex gap-2 flex-wrap mt-3');
+  br.appendChild(btn('btn-wood btn-sm', 'Reset to default', () => { delete V12S().padMap; saveProfile(); PADX.msg.textContent = 'Back to the standard Xbox layout.'; drawControllers(); }));
+  bind.appendChild(br);
+  body.appendChild(bind);
+  card.appendChild(body);
+  PADX.msg = el('div', 'px-msg'); card.appendChild(PADX.msg);
+  E.appendChild(card);
+}
+function pxSnapshot() { const out = {}; for (const gp of padsNow()) gp.buttons.forEach((b, k) => { if (b && (b.pressed || b.value > .5)) out[gp.index + ':' + k] = true; }); return out; }
+function pxTick() {
+  if (!PADX.open) return;
+  const pads = padsNow(), m = padMap() || {};
+  if (PADX.cells) {
+    const on = {};
+    for (const gp of pads) PAD_BTN.forEach((n, k) => { const p = Number.isInteger(m[n]) ? m[n] : k, b = gp.buttons[p]; if (b && (b.pressed || b.value > .5)) on[n] = on[n] || (gp.index ? 2 : 1); });
+    for (const n of PAD_BTN) { const c = PADX.cells[n]; c.classList.toggle('on', !!on[n]); c.classList.toggle('p2', on[n] === 2); }
+    const gp = pads[0];
+    if (gp) {
+      PADX.sticks.forEach((d, k) => { const x = gp.axes[k * 2] || 0, y = gp.axes[k * 2 + 1] || 0; d.style.left = 50 + x * 38 + '%'; d.style.top = 50 + y * 38 + '%'; });
+      PADX.trig.forEach((b, k) => { const t = gp.buttons[6 + k]; b.style.width = Math.round((t ? t.value : 0) * 100) + '%'; });
+    }
+    if (PADX.test && on.view && on.menu) { PADX.test = false; drawControllers(); }
+  }
+  if (PADX.listen) {
+    const snap = pxSnapshot();
+    for (const k in snap) if (!PADX.base[k]) {
+      const phys = +k.split(':')[1], S12 = V12S(), mm = Object.assign({}, padMap() || {}), n = PADX.listen;
+      // whoever had that button gets this one's old button, so nothing is ever left unbound
+      const old = Number.isInteger(mm[n]) ? mm[n] : PAD_BTN.indexOf(n);
+      for (const o of PAD_BTN) { const cur = Number.isInteger(mm[o]) ? mm[o] : PAD_BTN.indexOf(o); if (o !== n && cur === phys) mm[o] = old; }
+      mm[n] = phys; S12.padMap = mm; saveProfile();
+      PADX.listen = null; Sfx.play('cash', true);
+      drawControllers(); PADX.msg.textContent = `${PAD_LABEL[n]} is now button ${phys}.`;
+      break;
+    }
+    for (const k in PADX.base) if (!snap[k]) delete PADX.base[k];
+  }
+  PADX.raf = requestAnimationFrame(pxTick);
+}
+window.addEventListener('keydown', ev => { if (PADX.open && (ev.key === 'Escape' || ev.key === 'GoBack' || remoteKey(ev) === 'back')) { if (PADX.listen) { PADX.listen = null; drawControllers(); } else closeControllers(); ev.stopImmediatePropagation(); ev.preventDefault(); } }, true);
+window.addEventListener('gamepadconnected', () => { if (PADX.open) setTimeout(drawControllers, 50); });
+window.addEventListener('gamepaddisconnected', () => { if (PADX.open) setTimeout(drawControllers, 50); });
+
+// ----- redeem codes, made by the game's creator on a hidden screen -----
+// A code is 80 bits: what it gives, how much, an id, an optional expiry day, and a 30-bit check made with a key
+// only this game knows. Codes work offline and each one can be used once per player.
+const CODE_ABC = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const CODE_KEY = 'b6e1b307489c943021d0f2c1bdd30762bc7531ed8ebe1d9daa6fd91f70339a2f';
+const CREATOR = { salt: '66485a58fa4004ed500e2dab05d4320b', hash: 'a507b8d3e5a266b3b868149495bcb613de8728744433b29da286aeb28b7c90a2', iter: 150000, ok: false, taps: 0 };
+const CODE_KINDS = [
+  { id: 'coins', name: 'Coins', unit: 10, max: 16383 },
+  { id: 'gems', name: 'Gems', unit: 1, max: 16383 },
+  { id: 'tower', name: 'Tower unlock', unit: 1, max: 63 },
+  { id: 'crate', name: 'Crate', unit: 1, max: 2 },
+  { id: 'xp', name: 'Rank XP', unit: 10, max: 16383 },
+  { id: 'alltowers', name: 'Every tower', unit: 1, max: 0 },
+];
+const CODE_EPOCH = Date.UTC(2026, 0, 1);
+const hexBytes = h => new Uint8Array(h.match(/../g).map(x => parseInt(x, 16)));
+const codeDay = () => Math.floor((Date.now() - CODE_EPOCH) / 864e5);
+async function codeTag(payload) {
+  const k = await crypto.subtle.importKey('raw', hexBytes(CODE_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', k, payload));
+  return ((sig[0] << 22) | (sig[1] << 14) | (sig[2] << 6) | (sig[3] >> 2)) >>> 0;
+}
+function codePayload(kind, amount, id, exp) {
+  const v = (1n << 48n) | (BigInt(kind) << 44n) | (BigInt(amount) << 30n) | (BigInt(id) << 14n) | BigInt(exp), b = new Uint8Array(7);
+  for (let i = 0; i < 7; i++) b[i] = Number((v >> BigInt(8 * (6 - i))) & 255n);
+  return { v, b };
+}
+async function makeCode(kind, amount, exp) {
+  const id = crypto.getRandomValues(new Uint16Array(1))[0], P = codePayload(kind, amount, id, exp), tag = await codeTag(P.b);
+  let all = (P.v << 30n) | BigInt(tag), s = '';
+  for (let i = 0; i < 16; i++) { s = CODE_ABC[Number(all & 31n)] + s; all >>= 5n; }
+  return s.match(/..../g).join('-');
+}
+async function readCode(text) {
+  let s = String(text || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  if (s.length === 19 && s.startsWith('PHX')) s = s.slice(3);
+  if (s.length !== 16 || /[U]/.test(s)) return null;
+  let all = 0n; for (const ch of s) { const k = CODE_ABC.indexOf(ch); if (k < 0) return null; all = (all << 5n) | BigInt(k); }
+  const v = all >> 30n, tag = Number(all & ((1n << 30n) - 1n));
+  if ((v >> 48n) !== 1n) return null;
+  const kind = Number((v >> 44n) & 15n), amount = Number((v >> 30n) & 16383n), id = Number((v >> 14n) & 65535n), exp = Number(v & 16383n);
+  const P = codePayload(kind, amount, id, exp);
+  if (await codeTag(P.b) !== tag || !CODE_KINDS[kind]) return null;
+  return { kind, amount, id, exp, key: `${id}.${kind}.${amount}.${exp}` };
+}
+function codeReward(c) {
+  const K = CODE_KINDS[c.kind], items = [];
+  if (K.id === 'coins') { const n = c.amount * 10; profile.coins += n; profile.lifetime += n; items.push({ kind: 'coins', n }); return { items, title: `${fmt(n)} coins!` }; }
+  if (K.id === 'gems') { profile.gems += c.amount; profile.gemsLifetime += c.amount; items.push({ kind: 'gems', n: c.amount }); return { items, title: `${fmt(c.amount)} gems!` }; }
+  if (K.id === 'tower') { const t = TOWER_ORDER[c.amount]; if (!t) return null; profile.unlocked[t] = true; return { items, title: `${TOWERS[t].name} unlocked!`, sub: TOWERS[t].blurb }; }
+  if (K.id === 'crate') { const tier = ['wood', 'gold', 'royal'][c.amount] || 'wood'; giveChest(tier); items.push({ kind: 'chest', id: tier }); return { items, title: `${CHESTS[tier].name}!`, sub: 'Open it from the Supply Depot.' }; }
+  if (K.id === 'xp') { const n = c.amount * 10; profile.xp += n; try { checkRank(); } catch { /* rank-up shows later */ } return { items, title: `${fmt(n)} rank XP!` }; }
+  if (K.id === 'alltowers') { for (const t of TOWER_ORDER) if (TOWERS[t].unlock) profile.unlocked[t] = true; return { items, title: 'Every tower unlocked!', sub: 'The whole arsenal is yours.' }; }
+  return null;
+}
+document.head.insertAdjacentHTML('beforeend', `<style>
+.rc .card{max-width:560px;width:min(560px,94vw)}
+.rc-in{width:100%;font:900 22px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;text-align:center;padding:12px 10px;border:3px solid var(--ink);border-radius:18px;background:#fff;color:var(--ink);box-shadow:inset 0 3px 0 rgba(0,0,0,.06)}
+.rc-msg{min-height:22px;font-weight:900;text-align:center;margin-top:8px}
+.rc-msg.bad{color:var(--red)} .rc-msg.good{color:#2f7a22}
+.rc-code{font:900 24px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;text-align:center;padding:12px;border:3px dashed var(--ink);border-radius:18px;background:#fffbe8;user-select:all;word-break:break-all}
+.rc-hist{max-height:180px;overflow-y:auto;font:800 13px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--text-soft);background:var(--paper-2);border-radius:14px;padding:8px 12px;margin-top:10px}
+.rc-row{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center;margin-top:10px}
+.rc-row label{font-weight:900}
+.rc-row input,.rc-row select{font:800 16px var(--font-body,sans-serif);padding:6px 10px;border:2.5px solid var(--ink);border-radius:12px;background:#fff;color:var(--ink);min-width:0}
+</style>`);
+const rcEl = el('div', 'modal rc'); rcEl.hidden = true; document.body.appendChild(rcEl);
+rcEl.addEventListener('click', ev => { if (ev.target === rcEl) rcEl.hidden = true; });
+window.addEventListener('keydown', ev => { if (!rcEl.hidden && (ev.key === 'Escape' || ev.key === 'GoBack' || remoteKey(ev) === 'back')) { rcEl.hidden = true; ev.stopImmediatePropagation(); } }, true);
+function openRedeem() {
+  ui.settings.hidden = true;
+  rcEl.innerHTML = '';
+  const card = el('div', 'card'), top = el('div', 'flex items-start justify-between gap-3'), tl = el('div'), h = el('h1', null, 'Redeem a code');
+  tl.appendChild(h); tl.appendChild(el('div', 'tag', 'Got a code from the game\'s creator? Type it in for free stuff. Each code works once per player.'));
+  top.appendChild(tl); top.appendChild(btn('btn-wood btn-sm', 'Back', () => { rcEl.hidden = true; })); card.appendChild(top);
+  // seven quick taps on the title open the creator's sign-in
+  h.addEventListener('click', () => { if (++CREATOR.taps >= 7) { CREATOR.taps = 0; openCreator(); } setTimeout(() => { CREATOR.taps = Math.max(0, CREATOR.taps - 1); }, 1500); });
+  const inp = el('input', 'rc-in mt-3'); inp.placeholder = 'XXXX-XXXX-XXXX-XXXX'; inp.maxLength = 32; inp.autocomplete = 'off'; inp.spellcheck = false;
+  card.appendChild(inp);
+  const msg = el('div', 'rc-msg'); card.appendChild(msg);
+  const go = btn('btn-go btn-big mt-3', 'Redeem', async () => {
+    const raw = inp.value.trim();
+    if (/^creator$/i.test(raw)) { inp.value = ''; openCreator(); return; }
+    if (!window.crypto || !crypto.subtle) { msg.className = 'rc-msg bad'; msg.textContent = 'Codes need a newer browser.'; return; }
+    go.disabled = true;
+    try {
+      const c = await readCode(raw);
+      if (!c) { msg.className = 'rc-msg bad'; msg.textContent = "That code isn't valid. Check for typos."; Sfx.play('error', true); return; }
+      if (c.exp && codeDay() > c.exp) { msg.className = 'rc-msg bad'; msg.textContent = 'That code has expired.'; Sfx.play('error', true); return; }
+      const used = V12S().codes || (V12S().codes = {});
+      if (used[c.key]) { msg.className = 'rc-msg bad'; msg.textContent = "You've already used this code."; Sfx.play('error', true); return; }
+      const R = codeReward(c); if (!R) { msg.className = 'rc-msg bad'; msg.textContent = "That code isn't valid in this version."; return; }
+      used[c.key] = todayKey(); saveProfile();
+      msg.className = 'rc-msg good'; msg.textContent = 'Code accepted!'; inp.value = '';
+      rcEl.hidden = true; Sfx.play('unlock', true); celebrate({ title: R.title, sub: R.sub || 'Thanks for playing Operation Phoenix!', items: R.items });
+      if (view === 'home') refreshHome();
+    } finally { go.disabled = false; }
+  });
+  inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); go.click(); } });
+  card.appendChild(go);
+  rcEl.appendChild(card); rcEl.hidden = false;
+  setTimeout(() => inp.focus(), 40);
+}
+async function creatorCheck(pw) {
+  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: hexBytes(CREATOR.salt), iterations: CREATOR.iter, hash: 'SHA-256' }, k, 256));
+  return [...bits].map(b => b.toString(16).padStart(2, '0')).join('') === CREATOR.hash;
+}
+function openCreator() {
+  rcEl.innerHTML = '';
+  const card = el('div', 'card'), top = el('div', 'flex items-start justify-between gap-3'), tl = el('div');
+  tl.appendChild(el('h1', null, 'Creator')); tl.appendChild(el('div', 'tag', CREATOR.ok ? 'Make codes to give away. Each one works once per player and needs no internet.' : 'Creator sign-in. Enter your creator passphrase.'));
+  top.appendChild(tl); top.appendChild(btn('btn-wood btn-sm', 'Back', () => { rcEl.hidden = true; })); card.appendChild(top);
+  const msg = el('div', 'rc-msg');
+  if (!CREATOR.ok) {
+    const inp = el('input', 'rc-in mt-3'); inp.type = 'password'; inp.placeholder = 'passphrase'; inp.autocomplete = 'off'; inp.style.textTransform = 'none'; card.appendChild(inp);
+    card.appendChild(msg);
+    const go = btn('btn-go btn-big mt-3', 'Sign in', async () => {
+      go.disabled = true; msg.className = 'rc-msg'; msg.textContent = 'Checking…';
+      try {
+        if (await creatorCheck(inp.value.trim())) { CREATOR.ok = true; Sfx.play('unlock', true); openCreator(); }
+        else { msg.className = 'rc-msg bad'; msg.textContent = 'Wrong passphrase.'; Sfx.play('error', true); await new Promise(r => setTimeout(r, 1200)); }
+      } catch { msg.className = 'rc-msg bad'; msg.textContent = 'This browser can\'t check passphrases.'; }
+      finally { go.disabled = false; }
+    });
+    inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); go.click(); } });
+    card.appendChild(go); rcEl.appendChild(card); rcEl.hidden = false; setTimeout(() => inp.focus(), 40);
+    return;
+  }
+  const row = el('div', 'rc-row');
+  const kindSel = el('select'); CODE_KINDS.forEach((K, i) => { const o = el('option', null, K.name); o.value = i; kindSel.appendChild(o); });
+  const amt = el('input'); amt.type = 'number'; amt.min = 1; amt.value = 500;
+  const towerSel = el('select'); TOWER_ORDER.forEach((t, i) => { const o = el('option', null, TOWERS[t].name); o.value = i; towerSel.appendChild(o); });
+  const crateSel = el('select'); ['wood', 'gold', 'royal'].forEach((t, i) => { const o = el('option', null, CHESTS[t].name); o.value = i; crateSel.appendChild(o); });
+  const expSel = el('select'); [['0', 'Never'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days'], ['365', '1 year']].forEach(([v, n]) => { const o = el('option', null, n); o.value = v; expSel.appendChild(o); });
+  const amtL = el('label', null, 'Amount');
+  row.appendChild(el('label', null, 'Gives')); row.appendChild(kindSel);
+  row.appendChild(amtL); const slot = el('div'); row.appendChild(slot);
+  row.appendChild(el('label', null, 'Expires')); row.appendChild(expSel);
+  card.appendChild(row);
+  const sync = () => { const K = CODE_KINDS[+kindSel.value]; slot.innerHTML = ''; amtL.textContent = K.id === 'tower' ? 'Tower' : K.id === 'crate' ? 'Crate' : 'Amount'; if (K.id === 'tower') slot.appendChild(towerSel); else if (K.id === 'crate') slot.appendChild(crateSel); else if (K.id !== 'alltowers') slot.appendChild(amt); else slot.appendChild(el('span', 'note', 'Unlocks all towers')); };
+  kindSel.addEventListener('change', sync); sync();
+  const out = el('div', 'rc-code mt-3', '—'); card.appendChild(out); card.appendChild(msg);
+  const hist = el('div', 'rc-hist'); const H = Store.get('op.creator.codes', []); const showHist = () => { hist.innerHTML = ''; (Array.isArray(H) ? H : []).slice(0, 40).forEach(x => hist.appendChild(el('div', null, String(x)))); hist.hidden = !H.length; }; showHist();
+  const make = btn('btn-go btn-big mt-3', 'Make code', async () => {
+    const k = +kindSel.value, K = CODE_KINDS[k];
+    let a = K.id === 'tower' ? +towerSel.value : K.id === 'crate' ? +crateSel.value : K.id === 'alltowers' ? 0 : Math.round((+amt.value || 0) / K.unit);
+    if (K.id !== 'alltowers' && K.id !== 'tower' && K.id !== 'crate' && a < 1) { msg.className = 'rc-msg bad'; msg.textContent = `Pick an amount of at least ${K.unit}.`; return; }
+    a = clamp(a, 0, K.max);
+    const exp = +expSel.value ? codeDay() + +expSel.value : 0;
+    const code = await makeCode(k, a, exp), what = K.id === 'tower' ? TOWERS[TOWER_ORDER[a]].name : K.id === 'crate' ? CHESTS[['wood', 'gold', 'royal'][a]].name : K.id === 'alltowers' ? 'every tower' : `${fmt(a * K.unit)} ${K.name.toLowerCase()}`;
+    out.textContent = code; msg.className = 'rc-msg good'; msg.textContent = `Gives ${what}${exp ? `, expires in ${expSel.value} days` : ''}.`;
+    H.unshift(`${code}  ${what}`); if (H.length > 60) H.length = 60; Store.set('op.creator.codes', H); showHist();
+    try { await navigator.clipboard.writeText(code); msg.textContent += ' Copied!'; } catch { /* copy by hand */ }
+    Sfx.play('cash', true);
+  });
+  card.appendChild(make);
+  card.appendChild(el('h3', 'mt-3', 'Codes you made')); card.appendChild(hist);
+  rcEl.appendChild(card); rcEl.hidden = false;
+}
+
+// ----- settings: controller setup and codes -----
+const openSettingsV12 = openSettings;
+openSettings = function () {
+  openSettingsV12();
+  const grid = ui.setGrid;
+  grid.appendChild(el('h4', null, 'Extras'));
+  const row = (label, sub, control) => { const l = el('label'); l.textContent = label; if (sub) l.appendChild(el('small', null, sub)); grid.appendChild(l); grid.appendChild(control); };
+  row('Controllers', `${padsNow().length || 'no'} connected · test buttons and rebind them`, btn('btn-gold btn-sm', 'Set up', () => openControllers()));
+  row('Redeem a code', 'free stuff from the game\'s creator', btn('btn-gold btn-sm', 'Enter code', () => openRedeem()));
+};
 // ---------- entrances: hostiles march out of the bunker door, and bosses get a proper cinematic ----------
 
 // ===== out of the bunker =====
@@ -12445,7 +13820,7 @@ function gateEmerge(e) {
 const spawnEnemyEn = spawnEnemy;
 spawnEnemy = function (type, dist = 0, spec = null) {
   const e = spawnEnemyEn(type, dist, spec);
-  if (e && !e.def.fly && dist < 5 && S.mode !== 'demo' && gateOk()) { e.fromGate = true; gateEmerge(e); if (e.def.boss) bossBreakout(e); }
+  if (e && !e.def.fly && !e.lane && dist < 5 && S.mode !== 'demo' && gateOk()) { e.fromGate = true; gateEmerge(e); if (e.def.boss) bossBreakout(e); }
   return e;
 };
 const updateEn = update;
@@ -12483,7 +13858,7 @@ function bossBreakout(e) {
 // ===== boss intros: letterbox, spotlight, a slam-in name card. No zoom. =====
 const BOSS_CINE = { dur: 3.4 };
 startCine = function (e) {
-  if (!S || S.mode !== 'playing' || S.anim - (S.cineAt ?? -99) < 18) return;
+  if (!S || S.mode !== 'playing' || S.anim - (S.cineAt != null ? S.cineAt : -99) < 18) return;
   S.cineAt = S.anim;
   const z = e.zed, name = e.king || (z ? 'Abomination' : 'Goliath');
   S.cine = { e, t: 0, dur: REDUCED ? 2.2 : BOSS_CINE.dur, name: name.toUpperCase(), sub: e.king && !e.mini ? 'Commander of this region' : e.mini ? 'Mini-boss with a nasty trick' : z ? 'Stitched-together horror' : 'Heavy assault walker', z, steps: 0 };
@@ -12698,17 +14073,18 @@ setInterval(() => {
 // ===== host: stream the battle =====
 function b64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s); }
 function unb64(s) { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
-const SNAP_B = 13, SNAP_MAX = 200;
+const SNAP_B = 14, SNAP_MAX = 190; // 14 bytes per hostile: the last one is which entrance (lane) it came from
 function packEnemies(list) {
-  const u = new Uint8Array(list.length * SNAP_B), v = new DataView(u.buffer), tot = S.map.total || 1;
+  const u = new Uint8Array(list.length * SNAP_B), v = new DataView(u.buffer);
   list.forEach((e, i) => {
-    const o = i * SNAP_B, ti = Math.max(0, ENEMY_KEYS.indexOf(e.type));
+    const tot = pathOf(e).total || 1, o = i * SNAP_B, ti = Math.max(0, ENEMY_KEYS.indexOf(e.type));
     v.setUint16(o, e.id & 0xffff); u[o + 2] = ti;
     u[o + 3] = (e.zed ? 1 : 0) | (e.king && !e.mini ? 2 : 0) | (e.mini ? 4 : 0) | (e.detour != null || e.def.fly || e.fromGate ? 8 : 0) | (e.revealed ? 16 : 0) | (e.dirx > 0 ? 32 : 0) | (e.vanish > 0 ? 64 : 0) | (e.coverT > 0 ? 128 : 0);
     u[o + 4] = Math.min(255, Math.round((e.big || 1) * 40));
     v.setUint16(o + 5, Math.round(clamp(e.x + 200, 0, 3200) * 20)); v.setUint16(o + 7, Math.round(clamp(e.y + 200, 0, 3200) * 20));
     v.setUint16(o + 9, Math.round(clamp(e.dist / tot, 0, 1) * 65535));
     u[o + 11] = Math.round(clamp(e.hp / (e.maxHp || 1), 0, 1) * 255);
+    u[o + 13] = e.lane | 0;
     u[o + 12] = (e.slow > 0 ? 1 : 0) | (e.frozen > 0 ? 2 : 0) | (e.burn > 0 ? 4 : 0) | (e.stun > 0 ? 8 : 0) | (e.flash > 0 ? 16 : 0) | (e.shield > 0 ? 32 : 0) | (e.chillT > 0 ? 64 : 0) | (e.inside ? 128 : 0);
   });
   return b64(u);
@@ -12848,17 +14224,19 @@ function netGuestSnap(d) {
 }
 function netApplySnap(chunks) {
   const now = performance.now(), dtS = clamp((now - (NETG.snapT || now - 200)) / 1000, .03, 1); NETG.snapT = now;
-  const seen = new Set(), tot = S.map.total || 1; let budget = SNAP_MAX * 2;
+  const seen = new Set(), nl = S.map.lanes ? S.map.lanes.length : 1; let budget = SNAP_MAX * 2;
   for (const c of chunks) {
     let u; try { u = unb64(c); } catch { return; }
     const v = new DataView(u.buffer);
     for (let o = 0; o + SNAP_B <= u.length && budget-- > 0; o += SNAP_B) {
       const id = v.getUint16(o), ti = u[o + 2], fl = u[o + 3]; if (ti >= ENEMY_KEYS.length) continue;
+      const lane = u[o + 13] < nl ? u[o + 13] : 0, tot = (lane ? S.map.lanes[lane] : S.map).total || 1;
       const x = v.getUint16(o + 5) / 20 - 200, y = v.getUint16(o + 7) / 20 - 200, dist = v.getUint16(o + 9) / 65535 * tot, hp = u[o + 11] / 255, st = u[o + 12];
       let e = NETG.en.get(id);
       if (!e || !e.alive) {
         NET.applying = true;
-        try { e = spawnEnemy(ENEMY_KEYS[ti], dist, fl & 2 ? 'king' : fl & 4 ? 'mini' : null); } finally { NET.applying = false; }
+        S.forceLane = lane;
+        try { e = spawnEnemy(ENEMY_KEYS[ti], dist, fl & 2 ? 'king' : fl & 4 ? 'mini' : null); } finally { NET.applying = false; S.forceLane = null; }
         if (!e) continue;
         e.netId = id; e.fromGate = false; e.inside = false; e.gd = dist; e.gx = x; e.gy = y; e.nv = 0; e.vx = 0; e.vy = 0;
         NETG.en.set(id, e);
@@ -12882,7 +14260,7 @@ function netApplySnap(chunks) {
     NETG.en.delete(id);
     if (!e.alive) continue;
     // gone on the host: killed (blow it up here too) or reached HQ (just vanish)
-    if (e.gd < tot - T * 1.2 && !e.def.fly) { try { deathFx(e); } catch { /* cosmetic */ } } else if (e.def.fly && e.gx < S.map.base.x - T * 1.2) { try { deathFx(e); } catch { /* cosmetic */ } }
+    if (e.gd < pathOf(e).total - T * 1.2 && !e.def.fly) { try { deathFx(e); } catch { /* cosmetic */ } } else if (e.def.fly && e.gx < S.map.base.x - T * 1.2) { try { deathFx(e); } catch { /* cosmetic */ } }
     e.alive = false;
   }
 }
@@ -12959,7 +14337,7 @@ update = function (dt) {
     const age = Math.min(.35, (now - (e.nt || now)) / 1000);
     e.gd += (e.nd + e.nv * age - e.gd) * k; e.dist = Math.max(0, e.gd);
     if (e.free) { e.gx += (e.nx + e.vx * age - e.gx) * k; e.gy += (e.ny + e.vy * age - e.gy) * k; e.x = e.gx; e.y = e.gy; const l = Math.hypot(e.vx, e.vy); if (l > 1) { e.dirx = e.vx / l; e.diry = e.vy / l; } }
-    else { const p = pointAt(S.map, Math.min(e.dist, S.map.total - 1)); e.x = p.x; e.y = p.y; e.dirx = p.dx; e.diry = p.dy; e.gx = e.x; e.gy = e.y; }
+    else { const PM = pathOf(e), p = pointAt(PM, Math.min(e.dist, PM.total - 1)); e.x = p.x; e.y = p.y; e.dirx = p.dx; e.diry = p.dy; e.gx = e.x; e.gy = e.y; }
     if (e.hp <= 0) e.hp = e.maxHp * .002;
   }
 };
@@ -13306,6 +14684,55 @@ syncHud = function () {
     if (p !== NET.me) coopUi.keys[p].textContent = 'Playing on their own computer';
     else coopUi.keys[p].insertAdjacentHTML('afterbegin', '<span></span><span>Online: both halves of your keyboard and any controller play you</span>');
   }
+};
+// ---------- v12 online: a host's own Map Maker maps travel with the invite ----------
+// The guest doesn't have the host's custom maps, so the map itself rides along with the lobby and start messages.
+// Everything in it is checked hard before it is used: whole numbers, straight road pieces, sane sizes.
+const MM_THEMES = ['meadow', 'winter', 'tropical', 'desert', 'halloween', 'volcano'];
+const MM_DIFF = { Easy: { gold: 190, lives: 25, hpMul: .9, stars: 1 }, Medium: { gold: 165, lives: 20, hpMul: 1, stars: 1.2 }, Hard: { gold: 150, lives: 15, hpMul: 1.2, stars: 1.5 } };
+function netRoad(list, lo) {
+  if (!Array.isArray(list) || list.length < 2 || list.length > 120) return null;
+  const out = [];
+  for (const p of list) {
+    if (!Array.isArray(p) || p.length !== 2 || !Number.isInteger(p[0]) || !Number.isInteger(p[1])) return null;
+    if (p[0] < -1 || p[0] > COLS || p[1] < -1 || p[1] > ROWS) return null;
+    const q = out[out.length - 1];
+    if (q && (q[0] !== p[0]) === (q[1] !== p[1])) return null; // every piece must run straight across or down
+    out.push([p[0], p[1]]);
+  }
+  return lo ? out : out;
+}
+function netCleanDef(d) {
+  if (!d || typeof d !== 'object' || typeof d.id !== 'string' || !/^custom-\d{1,12}$/.test(d.id)) return null;
+  const pts = netRoad(d.pts); if (!pts) return null;
+  const [ec, er] = pts[pts.length - 1]; if (ec < 1 || ec > COLS - 2 || er < 1 || er > ROWS - 2) return null;
+  const lanes = [];
+  if (Array.isArray(d.lanes)) for (const L of d.lanes.slice(0, 6)) { const c = netRoad(L); if (!c) return null; lanes.push(c); }
+  const diff = MM_DIFF[d.diff] ? d.diff : 'Medium', theme = MM_THEMES.includes(d.theme) ? d.theme : 'meadow';
+  const name = (typeof d.name === 'string' ? String(Store.clean('name', d.name)) : '').slice(0, 24) || 'Friend\'s map';
+  const out = Object.assign({ id: d.id, name, theme, diff, seed: clamp(d.seed | 0, 0, 10000), waves: [10, 20, 30].includes(d.waves) ? d.waves : 20, pts, custom: true, remote: true }, MM_DIFF[diff]);
+  if (lanes.length) out.lanes = lanes;
+  return out;
+}
+function netPackDef(idx) {
+  const m = MAPS[idx]; if (!m || !m.custom) return null;
+  return { id: m.id, name: m.name, theme: m.theme, diff: m.diff, seed: m.seed, waves: m.waves, pts: m.pts, lanes: m.lanes };
+}
+const netSendV12 = netSend;
+netSend = function (o) {
+  if (o && (o.t === 'start' || (o.t === 'lobby' && o.k === 'coop')) && typeof o.map === 'number') { const def = netPackDef(o.map); if (def) o = Object.assign({}, o, { def }); }
+  return netSendV12(o);
+};
+const netGuestInV12 = netGuestIn;
+netGuestIn = function (d) {
+  if (d && d.def && (d.t === 'start' || d.t === 'lobby')) {
+    const def = netCleanDef(d.def);
+    if (!def) return; // a map we can't trust: ignore the whole message
+    let i = MAPS.findIndex(m => m.id === def.id);
+    if (i < 0) { MAPS.push(def); i = MAPS.length - 1; }
+    d = Object.assign({}, d, { map: i });
+  }
+  return netGuestInV12(d);
 };
 
 function setView(v) {
@@ -13830,8 +15257,8 @@ function start(data) {
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { ui.infoKey = ''; ui.enemyIcons = {}; ui.previewKey = ''; ui.powerKey = ''; if (view === 'home' && ui.pastTitle) renderHome(); });
   requestAnimationFrame(t => { lastT = t; frame(t); });
 }
-window.claude?.hot?.snapshot?.(snapshot);
-window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+{ const h = window.claude && window.claude.hot; if (h && h.snapshot) h.snapshot(snapshot); }
+{ const h = window.claude && window.claude.hot; if (h && h.ready) h.ready(start); else start(h && h.data != null ? h.data : {}); }
 </script>
 </body>
 </html>
