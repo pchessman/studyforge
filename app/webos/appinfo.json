@@ -1,0 +1,17 @@
+{
+  "id": "com.operationphoenix.game",
+  "version": "1.0.0",
+  "vendor": "Operation Phoenix",
+  "type": "web",
+  "main": "index.html",
+  "title": "Operation Phoenix",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "splashBackground": "splash.png",
+  "bgColor": "#2a3320",
+  "iconColor": "#3f5a26",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": false,
+  "requiredACG": []
+}

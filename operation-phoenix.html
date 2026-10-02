@@ -2050,7 +2050,7 @@ function loadProfile() {
     unlocked: obj(p.unlocked) || {}, perks: { chest: 0, walls: 0, bounty: 0, thrift: 0, radar: 0, airfield: 0 }, xp: num(p.xp), rankSeen: num(p.rankSeen),
     best: obj(p.best) || {}, daily: obj(p.daily) || { date: '', best: 0, rewarded: false },
     stats: { kills: 0, runs: 0, combo: 0, bosses: 0, flyers: 0, ghosts: 0, quests: 0, levels: 0 },
-    settings: { music: .8, sfx: .8, shake: true, dmgNums: true, colorblind: false, ui: 'auto', lowFx: false, gfx: 'medium', fps: 60, blood: true, musicStyle: 'chip', radio: true, djName: '', season: 'auto', ghost: true, amb: .6 },
+    settings: { music: .8, sfx: .8, shake: true, dmgNums: true, colorblind: false, ui: 'auto', lowFx: false, gfx: 'medium', fps: 60, blood: true, musicStyle: 'chip', radio: true, djName: '', season: 'auto', ghost: true, amb: .6, hints: true, bday: '' },
     migrated: !!p.migrated, v3: !!p.v3,
     skins: { owned: { classic: true }, active: 'classic' },
     hero: HEROES[p.hero] ? p.hero : HEROES[HERO_RENAME[p.hero]] ? HERO_RENAME[p.hero] : null,
@@ -6904,7 +6904,7 @@ function normV10(v) {
     lb: ob(o.lb), ghost: ob(o.ghost),
     finish: { owned: Object.assign(ob(fin.owned), { none: true }), active: typeof fin.active === 'string' ? fin.active : 'none' },
     weekly: { wk: wk.wk | 0, done: !!wk.done, clears: wk.clears | 0 },
-    vsBest: +o.vsBest || 0, tips: o.tips | 0,
+    vsBest: +o.vsBest || 0, tips: o.tips | 0, coop: ob(o.coop),
   };
 }
 profile.v10 = normV10(profile.v10);
@@ -8779,7 +8779,9 @@ function openSettings() {
   row('Music style', 'every map tune, three ways', seg('musicStyle', [['chip', '8-bit'], ['synth', 'Synthwave'], ['calm', 'Tranquil']], () => { Sfx.unlock(); Music.phrase = null; Music.tuneIdx = 0; Music.nature(); }));
   row('Squad chatter', 'short funny lines between waves', toggle('radio'));
   row('Ghost of best run', 'faint towers show your best build', toggle('ghost', () => { if (S && S.mode === 'playing') S.ghost = s.ghost && LB_MODES.includes(S.rules.mode) ? V10().ghost[bestKey()] || null : null; }));
-  row('Seasonal events', 'Auto follows the calendar', seg('season', [['auto', 'Auto'], ['off', 'Off'], ['halloween', '🎃'], ['winter', '🎁'], ['summer', '🏖'], ['lny', '🏮']], () => { if (S && S.map) S.map.seasonProps = null; }));
+  row('Seasonal events', 'Auto follows the calendar, or preview one', seg('season', [['auto', 'Auto'], ['off', 'Off'], ['halloween', '🎃'], ['winter', '🎁'], ['lny', '🏮'], ['valentine', '💘'], ['easter', '🐣'], ['canada', '🍁'], ['summer', '🏖'], ['birthday', '🎂']], () => { if (S && S.map) S.map.seasonProps = null; }));
+  row('Your birthday', 'the game throws you a party on the day', bdayPicker());
+  row('Controls card', 'shows the buttons for your mouse, keys, controller or remote', toggle('hints', () => hintRefresh()));
   row('Sound effects', null, slider('sfx', () => { Sfx.unlock(); if (Sfx.out) Sfx.out.gain.value = .55 * s.sfx; }));
   row('Ambience', 'birds, wind, waves and crickets on the map', slider('amb', () => { Sfx.unlock(); Amb.apply(); }));
   row('DJ Booth track', s.djName ? `Playing: ${s.djName}` : 'upload an audio file; DJs play it on the map', djUploadControls(() => openSettings()));
@@ -10089,7 +10091,8 @@ tabShop = function (body) {
   const F = V10().finish, grid = el('div', 'grid-cards');
   for (const f of FINISHES) {
     const owned = !!F.owned[f.id], on = F.active === f.id;
-    grid.appendChild(shopItem(finishIcon(f), f.name, f.desc, on ? 'on' : owned ? 'owned' : 'buy',
+    const ev = f.event && SEASONS[f.event];
+    grid.appendChild(shopItem(finishIcon(f), f.name, ev && !owned ? `${f.desc} ${ev.icon} Win the ${ev.name} Seasonal Op to earn it.` : f.desc, on ? 'on' : owned ? 'owned' : ev ? 'locked' : 'buy',
       () => { F.owned[f.id] = true; F.active = f.id; V9.spr.clear(); checkAch(); toastHome(`New tower finish: ${f.name}!`); },
       () => { F.active = f.id; V9.spr.clear(); saveProfile(); Sfx.play('click', true); refreshHome(); }, f.gems));
   }
@@ -10324,16 +10327,410 @@ const drawSeasonV10 = drawSeason;
 drawSeason = function (g) { drawSeasonV10(g); try { drawLiveGate(g); } catch (e) { console.error(e); } };
 const updateAmbientV10 = updateAmbient;
 updateAmbient = function (dt) { updateAmbientV10(dt); if (S) S.gateDt = dt; };
-// ---------- blueprint co-op: two commanders, one map, a holographic blueprint each ----------
-// Both players defend one HQ against the usual AI waves, on one keyboard. Each has their own wallet (every bit of
-// income is split evenly) and plans on their own blueprint under the map; towers drop onto the shared battlefield.
-MODES.coop = { name: 'Blueprint Co-op', stripe: '2 players', desc: 'Two commanders, one keyboard, separate wallets. Each plans on a holographic blueprint and the towers drop onto the shared map.' };
+// ---------- input: Xbox / standard controllers, TV remotes, touch and mouse, and the controls card in the corner ----------
+// The game works out what you're holding from the last thing you touched: a mouse, a finger, the keyboard, a TV remote
+// or a controller. Menus can be driven with a D-pad or remote; in battle a cursor appears on the map.
+const IS_TV = /Web0S|webOS|SmartTV|SMART-TV|Android TV|AndroidTV|GoogleTV|BRAVIA|AFT[A-Z]|CrKey|Tizen|HbbTV|NetCast/i.test(navigator.userAgent);
+const Input = { mode: IS_TV ? 'remote' : matchMedia('(pointer: coarse)').matches ? 'touch' : 'mouse', tv: IS_TV, pads: [], prev: [], rep: [], routes: [], live: false, hint: true };
+const PAD_BTN = ['a', 'b', 'x', 'y', 'lb', 'rb', 'lt', 'rt', 'view', 'menu', 'ls', 'rs', 'up', 'down', 'left', 'right'];
+const PAD_DIRS = ['up', 'down', 'left', 'right'];
+function setInputMode(m) {
+  if (m === Input.mode) return;
+  Input.mode = m;
+  const b = document.body.classList; for (const k of ['mouse', 'touch', 'keys', 'pad', 'remote']) b.toggle('in-' + k, k === m);
+  if ((m === 'pad' || m === 'remote') && S && S.mode === 'playing' && !S.coop) padCursorOn();
+  hintRefresh();
+}
+document.body.classList.add('in-' + Input.mode); if (IS_TV) document.body.classList.add('tv');
+window.addEventListener('pointerdown', ev => setInputMode(ev.pointerType === 'touch' || ev.pointerType === 'pen' ? 'touch' : 'mouse'), true);
+window.addEventListener('pointermove', ev => { if (ev.pointerType === 'mouse' && (Math.abs(ev.movementX) + Math.abs(ev.movementY)) > 4 && Input.mode !== 'touch') setInputMode('mouse'); }, true);
+window.addEventListener('keydown', ev => { if (!ev.isTrusted) return; setInputMode(IS_TV || REMOTE_KEYS[ev.keyCode] ? 'remote' : 'keys'); }, true);
+
+// ----- TV remote keys -----
+// webOS: Back 461, colour keys 403-406. Android TV: Back arrives as Escape or GoBack/BrowserBack.
+const REMOTE_KEYS = { 461: 'back', 10009: 'back', 403: 'red', 404: 'green', 405: 'yellow', 406: 'blue', 412: 'rew', 417: 'ff', 415: 'play', 19: 'pause', 413: 'stop' };
+function remoteKey(ev) { return REMOTE_KEYS[ev.keyCode] || (ev.key === 'GoBack' || ev.key === 'BrowserBack' ? 'back' : ev.key === 'MediaPlayPause' ? 'pause' : null); }
+
+// ----- controllers -----
+window.addEventListener('gamepadconnected', ev => { Input.live = true; padLoop(); toastPad(ev.gamepad, true); });
+window.addEventListener('gamepaddisconnected', ev => toastPad(ev.gamepad, false));
+function toastPad(gp, on) { const n = gp.index + 1; if (typeof showToast === 'function') showToast(on ? `Controller ${n} connected` : `Controller ${n} disconnected`, on ? (S && S.coop ? `Plays as ${gp.index ? 'Bravo' : 'Alpha'}` : 'Use the D-pad or stick to move, A to choose, B to go back') : ''); }
+function padsNow() { try { return [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(p => p && p.connected); } catch { return []; } }
+function padLoop() {
+  if (padLoop.on) return; padLoop.on = true;
+  const tick = now => {
+    const pads = padsNow(); Input.pads = pads;
+    if (!pads.length) { padLoop.on = false; return; }
+    if (!document.hidden) for (const gp of pads) padRead(gp, now);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+function padRead(gp, now) {
+  const i = gp.index, prev = Input.prev[i] || (Input.prev[i] = {}), rep = Input.rep[i] || (Input.rep[i] = {});
+  const B = gp.buttons, A = gp.axes, cur = {};
+  PAD_BTN.forEach((n, k) => { const b = B[k]; cur[n] = !!b && (b.pressed || b.value > .5); });
+  // the left stick and right stick both work as a D-pad
+  const ax = Math.abs(A[0] || 0) > Math.abs(A[2] || 0) ? A[0] || 0 : A[2] || 0, ay = Math.abs(A[1] || 0) > Math.abs(A[3] || 0) ? A[1] || 0 : A[3] || 0;
+  if (ax < -.55) cur.left = true; if (ax > .55) cur.right = true; if (ay < -.55) cur.up = true; if (ay > .55) cur.down = true;
+  let any = false;
+  for (const n of PAD_BTN) {
+    if (cur[n] && !prev[n]) { any = true; rep[n] = now + 300; padFire(i, n); }
+    else if (cur[n] && PAD_DIRS.includes(n) && now >= rep[n]) { rep[n] = now + 85; padFire(i, n, true); }
+  }
+  Input.prev[i] = cur;
+  if (any) setInputMode('pad');
+}
+function padHeld(i, n) { return !!(Input.prev[i] && Input.prev[i][n]); }
+// Whoever wants a button gets it, most specific screen first. A handler returns true when it used the press.
+function padFire(i, n, repeat) {
+  Sfx.unlock();
+  for (const r of Input.routes) { try { if (r(i, n, repeat)) return; } catch (e) { console.error(e); } }
+}
+function padRoute(fn, first) { if (first) Input.routes.unshift(fn); else Input.routes.push(fn); }
+// short rumble on controllers that support it
+function rumble(i, ms = 60, strong = .5) { try { const gp = padsNow().find(p => p.index === i), h = gp && gp.vibrationActuator; if (h && h.playEffect) h.playEffect('dual-rumble', { duration: ms, strongMagnitude: strong, weakMagnitude: strong * .6 }); } catch { /* not supported */ } }
+
+// ===== menus: move between buttons with the D-pad, stick, arrows or remote =====
+const NAV_SEL = 'button:not(:disabled), [role=button], [role=radio], .hot, a[href], input:not([type=hidden]):not(:disabled), select, [tabindex]:not([tabindex="-1"])';
+function navVisible(e) {
+  const r = e.getBoundingClientRect(); if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return null;
+  const cx = clamp(r.left + r.width / 2, 1, innerWidth - 1), cy = clamp(r.top + r.height / 2, 1, innerHeight - 1), top = document.elementFromPoint(cx, cy);
+  return top && (top === e || e.contains(top) || top.closest(NAV_SEL) === e) ? r : null;
+}
+function navItems() { const out = []; for (const e of document.querySelectorAll(NAV_SEL)) { if (e.closest('[hidden],[inert]')) continue; const r = navVisible(e); if (r) out.push({ e, r }); } return out; }
+function navStart(items) {
+  return (items.find(x => x.e.matches('.btn-go, .btn-gold, #playBtn, #storyBtn, #contBtn')) || items.slice().sort((a, b) => a.r.top - b.r.top || a.r.left - b.r.left)[0]);
+}
+function navMove(dir) {
+  const items = navItems(); if (!items.length) return false;
+  const curEl = document.activeElement, cur = items.find(x => x.e === curEl);
+  if (!cur) { const s = navStart(items); navFocus(s.e); return true; }
+  // sliders take left and right for themselves
+  if (cur.e.matches('input[type=range]') && (dir === 'left' || dir === 'right')) {
+    const e = cur.e, st = +e.step || ((+e.max - +e.min) / 20) || 1; e.value = clamp(+e.value + (dir === 'right' ? st : -st), +e.min, +e.max);
+    e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); Sfx.play('tick', true); return true;
+  }
+  const a = cur.r, ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+  let best = null, bs = 1e9;
+  for (const x of items) {
+    if (x.e === cur.e || cur.e.contains(x.e)) continue;
+    const r = x.r, bx = r.left + r.width / 2, by = r.top + r.height / 2;
+    let main, side;
+    if (dir === 'left') { main = a.left - r.right; side = Math.abs(by - ay); if (bx >= ax - 2) continue; }
+    else if (dir === 'right') { main = r.left - a.right; side = Math.abs(by - ay); if (bx <= ax + 2) continue; }
+    else if (dir === 'up') { main = a.top - r.bottom; side = Math.abs(bx - ax); if (by >= ay - 2) continue; }
+    else { main = r.top - a.bottom; side = Math.abs(bx - ax); if (by <= ay + 2) continue; }
+    const s = Math.max(0, main) + side * 2.2 + (main < -8 ? 400 : 0);
+    if (s < bs) { bs = s; best = x; }
+  }
+  if (best) { navFocus(best.e); return true; }
+  return false;
+}
+function navFocus(e) { try { e.focus({ preventScroll: true }); e.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch { /* old browsers */ } Sfx.play('tick', true); }
+function navBack() {
+  const items = navItems();
+  const back = items.find(x => /^(back|close|×|✕|done|cancel|base)$/i.test((x.e.textContent || '').trim()) || /back|close/i.test(x.e.id || ''));
+  if (back) { back.e.click(); return true; }
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+  return true;
+}
+function navActivate() {
+  const e = document.activeElement;
+  if (e && e !== document.body && navVisible(e)) { if (e.matches('input[type=checkbox],input[type=radio]')) e.click(); else e.click(); return true; }
+  const items = navItems(); if (items.length) { navFocus(navStart(items).e); return true; }
+  return false;
+}
+const inMenus = () => !(view === 'play' && S && (S.mode === 'playing' || S.mode === 'paused') && ui.settings.hidden && ui.cut.hidden && ui.loading.hidden && !document.querySelector('.modal:not([hidden])'));
+// controllers in menus
+padRoute((i, n) => {
+  if (!inMenus() && !(S && S.paused)) return false;
+  if (!ui.loading.hidden) { if (n === 'a' || n === 'b') { const s = document.getElementById('loadSkip'); if (s && !s.hidden) s.click(); } return true; }
+  if (!ui.cut.hidden) { if (n === 'a' || n === 'right') ui.cutNext.click(); else if (n === 'b' || n === 'menu') ui.cutSkip.click(); return true; }
+  if (view === 'home' && !ui.pastTitle) { if (n === 'a' || n === 'menu') pressPlay(); return true; }
+  if (PAD_DIRS.includes(n)) { navMove(n); return true; }
+  if (n === 'a') return navActivate();
+  if (n === 'b') return navBack();
+  if (n === 'menu') { if (S && S.paused && view === 'play') { togglePause(); return true; } if (view === 'home' && ui.settings.hidden) { openSettings(); return true; } return navBack(); }
+  if (n === 'lb' || n === 'rb') { // flip between tabs in the base and settings
+    const tabs = [...document.querySelectorAll('.tab, .wtab, .tabs button')].filter(t => navVisible(t)); if (!tabs.length) return false;
+    const on = tabs.findIndex(t => t.classList.contains('on') || t.getAttribute('aria-selected') === 'true'), k = clamp((on < 0 ? 0 : on) + (n === 'rb' ? 1 : -1), 0, tabs.length - 1);
+    tabs[k].click(); tabs[k].focus({ preventScroll: true }); return true;
+  }
+  return false;
+});
+// keyboard and TV remote in menus: arrows move between buttons, Enter presses, Back closes
+window.addEventListener('keydown', ev => {
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const rk = remoteKey(ev);
+  if (rk === 'back') {
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    if (atTopLevel()) { if (window.PalmSystem || window.webOS) window.close(); return; } // LG TV: Back on the main screen leaves the app
+    if (inMenus() || (S && S.paused)) navBack(); else if (S && S.mode === 'playing') togglePause(); return;
+  }
+  if (!inMenus() || (ev.target && /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName) && ev.target.type !== 'range')) return;
+  if (!ui.cut.hidden || !ui.loading.hidden || (view === 'home' && !ui.pastTitle)) return;
+  const dir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[ev.key];
+  if (dir) { if (navMove(dir)) { ev.preventDefault(); ev.stopImmediatePropagation(); } return; }
+  if (ev.key === 'Enter' && (document.activeElement === document.body || !document.activeElement)) { if (navActivate()) { ev.preventDefault(); ev.stopImmediatePropagation(); } }
+}, true);
+
+// ===== battle with a controller or remote (solo): a cursor on the map =====
+const PC = { on: false, c: 9, r: 6, sel: 0, sellArm: 0 };
+function padCursorOn() {
+  if (!S || !S.map || PC.on) return;
+  PC.on = true;
+  if (S.hover && S.hover.c >= 0) { PC.c = clamp(S.hover.c, 0, COLS - 1); PC.r = clamp(S.hover.r, 0, ROWS - 1); }
+  else { const t = rankTiles(S.map, 2.4).find(t => canBuild(t.c, t.r)); if (t) { PC.c = t.c; PC.r = t.r; } }
+  padSync();
+}
+const padTypes = () => TOWER_ORDER.filter(t => available(t));
+const padType = () => { const L = padTypes(); return L.length ? L[((PC.sel % L.length) + L.length) % L.length] : null; };
+function padSync() {
+  if (!PC.on || !S || S.coop || S.vs) return;
+  const { c, r } = PC, tw = S.occ.get(r * COLS + c);
+  S.hover = { c, r, x: (c + .5) * T, y: (r + .5) * T };
+  if (tw) { S.placing = null; } else if (!S.selected) S.placing = canBuild(c, r) ? padType() : null;
+}
+function padSolo(n) {
+  if (!S || S.coop || S.vs || S.mode !== 'playing' || view !== 'play') return false;
+  if (n === 'menu') { togglePause(); return true; }
+  if (S.paused) return false;
+  padCursorOn();
+  const { c, r } = PC, key = r * COLS + c, tw = S.occ.get(key);
+  switch (n) {
+    case 'up': case 'down': case 'left': case 'right': {
+      const [dc, dr] = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[n];
+      PC.c = clamp(PC.c + dc, 0, COLS - 1); PC.r = clamp(PC.r + dr, 0, ROWS - 1); PC.sellArm = 0;
+      const nt = S.occ.get(PC.r * COLS + PC.c); S.selected = nt || null; padSync(); return true;
+    }
+    case 'lb': case 'rb': PC.sel += n === 'rb' ? 1 : -1; S.selected = null; padSync(); Sfx.play('click'); { const t = padType(); if (t) showToast(`${TOWERS[t].name} · $${costOf(t, 0)}`, TOWERS[t].role || ''); } return true;
+    case 'a': {
+      const drop = (S.drops || []).find(d => !d.gone && d.t >= d.fall && Math.abs(d.x - (c + .5) * T) < T && Math.abs(d.y - (r + .5) * T) < T);
+      if (drop) { collectDrop(drop); return true; }
+      if (S.map.alt && Math.hypot(S.map.alt.lever.x - (c + .5) * T, S.map.alt.lever.y - (r + .5) * T) < T) { flipSwitch(); return true; }
+      if (tw) { if (S.selected !== tw) { S.selected = tw; Sfx.play('click'); } else if (tw.level < 2) upgradeTower(tw); else if (tw.branch == null) showToast('Specialise', 'LT or RT picks one of the two paths'); return true; }
+      const type = padType(); if (!type) return true;
+      if (!canBuild(c, r)) { Sfx.play('error'); return true; }
+      if (S.gold < costOf(type, 0)) { planTower(-1, type, c, r); return true; }
+      const nt = buildTower(type, c, r); if (nt) { S.selected = nt; rumble(0, 50, .3); }
+      return true;
+    }
+    case 'b': if (S.selected || S.aiming || S.aimCall) { S.selected = null; S.aiming = false; S.aimCall = null; padSync(); } else togglePause(); return true;
+    case 'x': if (tw) { const now = performance.now(); if (PC.sellArm > now) { PC.sellArm = 0; sellTower(tw); padSync(); } else { PC.sellArm = now + 1800; showToast('Sell?', `Press X again to sell for $${Math.floor(tw.spent * SELL_RATE)}`); Sfx.play('tick'); } } else if (cancelPlan(c, r)) Sfx.play('sell'); return true;
+    case 'y': if (tw) { S.selected = tw; cycleTarget(); } return true;
+    case 'lt': case 'rt': if (tw && tw.level >= 2 && tw.branch == null) upgradeTower(tw, n === 'lt' ? 0 : 1); else Sfx.play('error'); return true;
+    case 'view': if (canCallWave()) startWave(); return true;
+    case 'rs': case 'ls': activatePower(); return true;
+  }
+  return false;
+}
+padRoute((i, n) => padSolo(n));
+// TV remote in solo battle: arrows move the cursor, OK acts, colour keys do the rest
+window.addEventListener('keydown', ev => {
+  if (!S || S.coop || S.vs || view !== 'play' || S.mode !== 'playing' || inMenus() || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const rk = remoteKey(ev), arrows = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[ev.key];
+  let n = null;
+  if (Input.mode !== 'remote' && !IS_TV) return; // desktop keyboards keep their usual shortcuts
+  if (arrows) n = arrows;
+  else if (ev.key === 'Enter') n = 'a';
+  else if (rk === 'red') n = 'x'; else if (rk === 'green') n = 'view'; else if (rk === 'yellow') n = 'rb'; else if (rk === 'blue') n = 'rs';
+  else if (rk === 'play' || rk === 'pause') n = 'menu';
+  if (!n) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  if (n !== 'menu' && S.paused) return;
+  padSolo(n);
+}, true);
+// the cursor stays on screen while you use a controller or remote, and steps aside for the mouse
+const drawGhostIn = drawGhost;
+drawGhost = function (g) {
+  if (PC.on && (Input.mode === 'mouse' || Input.mode === 'touch')) PC.on = false;
+  if (PC.on && S && !S.coop && !S.vs) { padSync(); drawPadCursor(g); }
+  drawGhostIn(g);
+  drawPlans(g);
+};
+function drawPadCursor(g) {
+  if (S.mode !== 'playing') return;
+  const x = PC.c * T, y = PC.r * T, p = 3 + Math.sin(S.anim * 6) * 2, L = 13, tw = S.occ.get(PC.r * COLS + PC.c), ok = tw || canBuild(PC.c, PC.r);
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  for (const [lw, col] of [[8, OUT], [4, ok ? '#ffe14d' : '#ff6a5a']]) {
+    g.strokeStyle = col; g.lineWidth = lw; g.beginPath();
+    for (const [sx, sy] of [[0, 0], [1, 0], [1, 1], [0, 1]]) { const cx = x + sx * T + (sx ? p : -p), cy = y + sy * T + (sy ? p : -p), dx = sx ? -1 : 1, dy = sy ? -1 : 1; g.moveTo(cx + dx * L, cy); g.lineTo(cx, cy); g.lineTo(cx, cy + dy * L); }
+    g.stroke();
+  }
+  const type = padType();
+  const label = tw ? (tw.level < 2 ? `A: upgrade $${costOf(tw.type, tw.level + 1)}` : tw.branch == null ? 'LT / RT: specialise' : TOWERS[tw.type].name) : canBuild(PC.c, PC.r) && type ? `A: ${TOWERS[type].name} $${costOf(type, 0)}` : "Can't build here";
+  drawChip(g, Input.mode === 'remote' ? label.replace(/^A:/, 'OK:').replace('LT / RT', 'Yellow') : label, clamp(x + T / 2, 70, W - 70), y - 14 < 12 ? y + T + 14 : y - 14, 11, '#fff8e4');
+}
+
+// ===== plan and auto-build: mark a tile now, it builds itself once there's money =====
+// owner -1 is the solo player; 0 and 1 are the co-op players.
+function plans() { return S.plans || (S.plans = new Map()); }
+function planTower(owner, type, c, r) {
+  const key = r * COLS + c, P = plans(), old = P.get(key);
+  if (old && old.owner === owner && old.type === type) { P.delete(key); Sfx.play('sell'); return 'cancel'; }
+  P.set(key, { owner, type, c, r, t: S.anim });
+  Sfx.play('tick', true); if (typeof coopTone === 'function') coopTone('plan', Math.max(0, owner));
+  if (owner < 0) addText((c + .5) * T, r * T - 6, `Planned: builds at $${costOf(type, 0)}`, '#bfe8ff', 13);
+  return 'plan';
+}
+function cancelPlan(c, r, owner) { const key = r * COLS + c, P = S.plans, p = P && P.get(key); if (!p || (owner != null && p.owner !== owner)) return false; P.delete(key); return true; }
+const plannedBy = (c, r) => { const p = S.plans && S.plans.get(r * COLS + c); return p ? p.owner : null; };
+function planTick() {
+  const P = S.plans; if (!P || !P.size || S.mode !== 'playing') return;
+  for (const [key, p] of P) {
+    if (!S.map.grid[p.r] || S.map.grid[p.r][p.c] !== 0 || S.occ.has(key) || !available(p.type)) { P.delete(key); continue; }
+    const cost = costOf(p.type, 0);
+    if (p.owner < 0) { if (S.gold >= cost) { P.delete(key); const tw = buildTower(p.type, p.c, p.r); if (tw) addText(tw.x, tw.y - 34, 'Auto-built!', '#bfe8ff', 14); } }
+    else if (S.coop) { coopSplit(); if (S.coop.cash[p.owner] >= cost) { P.delete(key); coopBuildAt(p.owner, p.type, p.c, p.r, true); } }
+  }
+}
+function drawPlans(g) {
+  const P = S && S.plans; if (!P || !P.size) return;
+  for (const p of P.values()) {
+    const x = (p.c + .5) * T, y = (p.r + .5) * T, cost = costOf(p.type, 0), have = p.owner < 0 ? S.gold : S.coop ? S.coop.cash[p.owner] : 0, k = clamp(have / cost, 0, 1);
+    const col = p.owner < 0 ? '120,200,255' : COOP.p[p.owner].rgb;
+    rr(g, p.c * T + 3, p.r * T + 3, T - 6, T - 6, 8); g.fillStyle = `rgba(${col},.18)`; g.fill();
+    g.setLineDash([5, 4]); g.lineDashOffset = -S.anim * 16; g.strokeStyle = `rgba(${col},.9)`; g.lineWidth = 2; g.stroke(); g.setLineDash([]);
+    g.globalAlpha = .45 + .1 * Math.sin(S.anim * 4); drawTower(g, { type: p.type, level: 0, x, y, angle: -Math.PI / 4, flash: 0, recoil: 0, beams: [], seed: 0, charge: .5 }, S.anim); g.globalAlpha = 1;
+    // a ring fills up as the money comes in
+    g.lineCap = 'round'; g.beginPath(); g.arc(x, y + 14, 9, -Math.PI / 2, -Math.PI / 2 + TAU * k); g.strokeStyle = `rgb(${col})`; g.lineWidth = 3.5; g.stroke();
+    g.beginPath(); g.arc(x, y + 14, 9, 0, TAU); g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1; g.stroke();
+  }
+}
+const updateIn = update;
+update = function (dt) { updateIn(dt); if (S && S.plans && S.plans.size) planTick(); };
+const canBuildIn = canBuild;
+canBuild = function (c, r) { return canBuildIn(c, r) && (!S.plans || !S.plans.has(r * COLS + c) || S._planBuilding); };
+// Plans in solo: clicking a tile you can't afford marks it instead of just saying no.
+const buildTowerIn = buildTower;
+buildTower = function (type, c, r) {
+  const P = S.plans, key = r * COLS + c, mine = P && P.get(key);
+  if (mine) S._planBuilding = true;
+  try { return buildTowerIn(type, c, r); } finally { S._planBuilding = false; if (mine && S.occ.has(key)) P.delete(key); }
+};
+cv.addEventListener('pointerdown', ev => {
+  if (!S || S.coop || S.vs || S.mode !== 'playing' || view !== 'play' || !S.placing || ev.button === 2) return;
+  const p = boardPoint(ev), key = p.r * COLS + p.c;
+  if (S.plans && S.plans.has(key) && S.plans.get(key).owner < 0) { S.plans.delete(key); Sfx.play('sell'); ev.stopImmediatePropagation(); return; }
+  if (canBuild(p.c, p.r) && S.gold < costOf(S.placing, 0) && (ev.pointerType === 'mouse' || S.pendingTap === key)) { planTower(-1, S.placing, p.c, p.r); S.placing = null; S.pendingTap = null; ev.stopImmediatePropagation(); }
+}, true);
+
+// ===== the controls card in the corner =====
+document.head.insertAdjacentHTML('beforeend', `<style>
+.ctl-hint{position:fixed;z-index:70;left:12px;bottom:12px;max-width:min(330px,calc(100vw - 24px));background:rgba(22,18,12,.84);color:#fff4dc;border:2.5px solid #000;border-radius:14px;padding:7px 10px 8px;font:800 12px/1.55 var(--font-body);box-shadow:0 4px 0 rgba(0,0,0,.35);pointer-events:none;user-select:none}
+.ctl-hint.top{top:12px;bottom:auto}
+.ctl-hint b{display:block;font-family:var(--font-display);font-weight:400;font-size:13px;letter-spacing:.04em;color:#ffe14d;margin-bottom:2px}
+.ctl-hint .row{display:flex;flex-wrap:wrap;gap:4px 10px}
+.ctl-hint .row>span{white-space:nowrap}
+.ctl-hint .x{pointer-events:auto;position:absolute;right:6px;top:3px;background:none;border:0;color:#fff4dc;font:900 14px var(--font-body);opacity:.7}
+.ctl-hint.min .row{display:none} .ctl-hint.min{padding:4px 28px 4px 10px}
+.gb{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;padding:0 4px;border-radius:999px;border:2px solid #000;font:900 10.5px/1 var(--font-body);color:#fff;vertical-align:-4px;margin-right:2px;box-sizing:border-box}
+.gb.a{background:#3fae3a}.gb.b{background:#d8333a}.gb.x{background:#2f6fd8}.gb.y{background:#e2b21a;color:#2b2418}
+.gb.s{background:#4a4f58;border-radius:6px}.gb.k{background:#fff8ec;color:#2b2418;border-radius:6px}
+.gb.r{background:#d8333a;border-radius:4px;min-width:14px}.gb.g{background:#3fae3a;border-radius:4px;min-width:14px}.gb.yl{background:#e2b21a;border-radius:4px;min-width:14px}.gb.bl{background:#2f6fd8;border-radius:4px;min-width:14px}
+body.in-pad :focus-visible,body.in-remote :focus-visible,body.in-pad :focus,body.in-remote :focus{outline:4px solid #ffe14d!important;outline-offset:3px!important;box-shadow:0 0 0 7px rgba(0,0,0,.55),0 0 22px 6px rgba(255,225,77,.6)!important}
+body.in-touch .ctl-hint{display:none}
+body.tv .btn{min-height:44px}
+</style>`);
+const hintEl = el('div', 'ctl-hint'); hintEl.hidden = true; hintEl.setAttribute('aria-live', 'off'); document.body.appendChild(hintEl);
+const gb = (cls, t) => `<span class="gb ${cls}">${t}</span>`;
+const K = t => gb('k', t);
+function hintBody() {
+  const m = Input.mode, ctx = view === 'play' && S && S.mode !== 'demo' ? (S.coop ? 'coop' : S.vs ? 'vs' : 'play') : 'menu';
+  if (ctx === 'coop') return null; // the co-op panels show each player's own controls
+  const pad = m === 'pad', rem = m === 'remote';
+  if (ctx === 'menu') {
+    if (pad) return ['Controller', [`${gb('s', '✥')} move`, `${gb('a', 'A')} select`, `${gb('b', 'B')} back`, `${gb('s', 'LB')}${gb('s', 'RB')} tabs`, `${gb('s', '☰')} settings`]];
+    if (rem) return ['Remote', [`${gb('s', '◀▲▶')} move`, `${gb('s', 'OK')} select`, `${gb('s', '↩')} back`]];
+    if (m === 'keys') return ['Keyboard', [`${K('←↑↓→')} move`, `${K('Enter')} select`, `${K('Esc')} back`, `${K('M')} music`]];
+    return null; // with a mouse the menus speak for themselves
+  }
+  if (ctx === 'vs') {
+    if (pad) return ['Versus · controllers', [`Defender (pad 1): ${gb('s', '✥')} aim ${gb('a', 'A')} build ${gb('b', 'B')} sell ${gb('s', 'LB')}${gb('s', 'RB')} tower`, `Attacker (pad 2): ${gb('s', 'LB')}${gb('s', 'RB')} unit ${gb('a', 'A')} send ${gb('x', 'X')} ×5 ${gb('y', 'Y')} boss`, `${gb('s', '☰')} pause`]];
+    return ['Versus', [`Attacker: ${K('Q')}–${K('G')} units ${K('X')} boss`, `Defender: ${K('←↑↓→')} aim ${K('Enter')} build ${K(',')}${K('.')} tower`, `${K('P')} pause`]];
+  }
+  if (pad) return ['Controller', [`${gb('s', '✥')} aim`, `${gb('a', 'A')} build / upgrade`, `${gb('s', 'LB')}${gb('s', 'RB')} tower`, `${gb('x', 'X')} sell`, `${gb('y', 'Y')} target`, `${gb('s', 'LT')}${gb('s', 'RT')} specialise`, `${gb('s', '⧉')} next wave`, `${gb('s', 'R3')} ability`, `${gb('s', '☰')} pause`]];
+  if (rem) return ['Remote', [`${gb('s', '◀▲▶')} aim`, `${gb('s', 'OK')} build / upgrade`, `${gb('yl', '')} next tower`, `${gb('r', '')} sell`, `${gb('g', '')} next wave`, `${gb('bl', '')} ability`, `${gb('s', '↩')} pause`]];
+  return ['Keys', [`${K('1')}–${K('0')} towers`, `${K('U')} upgrade`, `${K('S')} sell`, `${K('T')} target`, `${K('Q')} ability`, `${K('N')} next wave`, `${K('F')} speed`, `${K('Space')} pause`]];
+}
+let hintSig = null;
+function hintRefresh() {
+  const on = profile.settings.hints !== false, body = on ? hintBody() : null;
+  const sig = body ? body[0] + body[1].join('|') + (view === 'play') : '';
+  if (sig === hintSig) return; hintSig = sig;
+  hintEl.hidden = !body; if (!body) return;
+  hintEl.classList.toggle('top', view === 'play');
+  hintEl.innerHTML = `<button class="x" aria-label="Hide controls">${hintEl.classList.contains('min') ? '+' : '–'}</button><b>${body[0]}</b><div class="row">${body[1].map(s => `<span>${s}</span>`).join('')}</div>`;
+  hintEl.querySelector('.x').addEventListener('click', ev => { ev.stopPropagation(); hintEl.classList.toggle('min'); hintSig = ''; hintRefresh(); });
+}
+if (profile.settings.hints === undefined) profile.settings.hints = true;
+setInterval(hintRefresh, 500);
+hintRefresh();
+if (padsNow().length) { Input.live = true; padLoop(); }
+
+// ===== versus with controllers: the first controller defends, the second attacks =====
+document.head.insertAdjacentHTML('beforeend', '<style>.vs-u.pick{outline:4px solid #ffe14d;outline-offset:2px;transform:translateY(-2px)}</style>');
+padRoute((i, n) => {
+  if (!S || !S.vs || view !== 'play' || S.mode !== 'playing' || !ui.settings.hidden) return false;
+  if (n === 'menu') { togglePause(); return true; }
+  if (S.paused) return false;
+  const ids = padsNow().map(p => p.index).sort((a, b) => a - b), V = S.vs;
+  if (i === ids[0]) { // defender
+    V.kbd = true;
+    const mv = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[n];
+    if (mv) vsMove(...mv);
+    else if (n === 'a') vsEnter();
+    else if (n === 'b') vsSell();
+    else if (n === 'lb' || n === 'rb') vsCycle(n === 'rb' ? 1 : -1);
+    else if (n === 'lt' || n === 'rt') vsBranch(n === 'lt' ? 0 : 1);
+    else if (n === 'y' && vsTile()) { S.selected = vsTile(); cycleTarget(); }
+    return true;
+  }
+  if (i === ids[1]) { // attacker: pick a unit, A sends one, X sends five, Y sends the boss
+    const units = VS_UNITS.filter(u => !u.cd);
+    if (V.padSel == null) V.padSel = 0;
+    if (n === 'lb' || n === 'left' || n === 'up') V.padSel = (V.padSel + units.length - 1) % units.length;
+    else if (n === 'rb' || n === 'right' || n === 'down') V.padSel = (V.padSel + 1) % units.length;
+    else if (n === 'a' || n === 'x') vsSend(units[V.padSel], n === 'x');
+    else if (n === 'y') vsSend(VS_UNITS.find(u => u.cd), false);
+    if (vsAtk && vsAtk._u) for (const u of VS_UNITS) { const b = vsAtk._u[u.k]; if (b) b.classList.toggle('pick', u === units[V.padSel]); }
+    return true;
+  }
+  return false;
+}, true);
+
+// ===== hooks for the Android and LG TV apps =====
+// Back on the main screen exits; anywhere else it closes whatever is open, or pauses the battle.
+function atTopLevel() {
+  return view === 'home' && ui.settings.hidden && ui.cut.hidden && ui.loading.hidden && ui.picker.hidden && ui.campaign.hidden && ui.reward.hidden
+    && !document.querySelector('.modal:not([hidden]), .overlay:not([hidden])');
+}
+window.appBack = function () {
+  if (atTopLevel()) return 'exit';
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'GoBack', bubbles: true }));
+  return 'ok';
+};
+// the app went to the background: pause the battle
+window.appPause = function () { if (S && S.mode === 'playing' && !S.paused && view === 'play') togglePause(); };
+// ---------- co-op: two commanders, one map, separate wallets ----------
+// Both players defend one HQ against the AI waves, from one keyboard, two controllers, or one of each. Each picks six
+// towers before the match. Kill money and wave bonuses are split evenly; a Money Farm pays only its owner, and
+// DJs and Commanders only boost their owner's towers. Players can gift $25 a wave and chip in together to repair HQ.
+MODES.coop = { name: 'Co-op', stripe: '2 players', desc: 'Two commanders, one map, separate wallets. Pick six towers each, share the kills, gift cash and chip in to repair HQ. Quick matches or the co-op campaign.' };
 MODE_ORDER.splice(MODE_ORDER.indexOf('versus') + 1, 0, 'coop');
 
 const COOP = {
-  p: [{ name: 'ALPHA', col: '#4fd8ff', rgb: '79,216,255' }, { name: 'BRAVO', col: '#ffb23f', rgb: '255,178,63' }],
-  first: 25, brk: 12, startK: .7, hpK: 1.15,
+  p: [{ name: 'ALPHA', col: '#4fd8ff', rgb: '79,216,255', dark: '#16739a' }, { name: 'BRAVO', col: '#ffb23f', rgb: '255,178,63', dark: '#a8600c' }],
+  first: 25, brk: 12, startK: .7, hpK: 1.15, slots: 6, gift: 25, heal: 3,
 };
+const COOP_DEFAULT = [['gun', 'frost', 'artillery', 'tesla', 'sniper', 'farm'], ['minigun', 'flame', 'riot', 'phaser', 'commander', 'dj']];
+function coopSaved() { const c = V10().coop; if (!Array.isArray(c.load)) c.load = []; if (!c.camp || typeof c.camp !== 'object' || Array.isArray(c.camp)) c.camp = {}; return c; }
+function coopLoadout(p) {
+  const s = coopSaved().load[p], ok = Array.isArray(s) ? s.filter((t, i, a) => TOWERS[t] && a.indexOf(t) === i).slice(0, COOP.slots) : [];
+  for (const t of COOP_DEFAULT[p]) if (ok.length < COOP.slots && !ok.includes(t)) ok.push(t);
+  return ok;
+}
 // Every wave the weather turns, and from wave 2 a wave may come with a twist.
 const COOP_SKY = {
   meadow: ['clear', 'rain', 'windy', 'fog', 'rain'], tropical: ['clear', 'rain', 'windy', 'fog'], winter: ['snow', 'blizzard', 'clear', 'fog', 'windy'],
@@ -10352,6 +10749,7 @@ function coopAdd(type, n) {
   for (let i = 0; i < n; i++) S.spawnList.push({ type, t: 1 + Math.random() * Math.max(2, last) });
   S.spawnList.sort((a, b) => a.t - b.t);
 }
+const coopMission = () => (S && S.coop && S.coop.mission) || null;
 
 // ===== rules, start and the run hooks =====
 const makeRulesV11 = makeRules;
@@ -10359,47 +10757,112 @@ makeRules = function (mode, mapIdx, demo = false, level = null, hard = false) {
   if (mode !== 'coop') return makeRulesV11(mode, mapIdx, demo, level, hard);
   // each player starts with 70% of the usual money, and the waves hit a little harder to match
   const r = makeRulesV11('classic', mapIdx, false);
-  return Object.assign(r, { mode: 'coop', coop: true, allTowers: true, hero: null, startGold: Math.round(r.startGold * COOP.startK), hpMul: r.hpMul * COOP.hpK,
-    mods: [{ name: 'Blueprint Co-op', desc: 'Two players, separate wallets, all income split evenly' }] });
+  Object.assign(r, { mode: 'coop', coop: true, allTowers: true, hero: null, startGold: Math.round(r.startGold * COOP.startK), hpMul: r.hpMul * COOP.hpK, maxWave: 30,
+    mods: [{ name: 'Co-op', desc: 'Two players, separate wallets, kill money split evenly' }] });
+  const M = coopUi.pendingMission; if (M) { r.maxWave = M.waves; if (M.apply) M.apply(r); r.mods = [{ name: M.name, desc: M.desc }]; r.coopMission = M.id; }
+  return r;
 };
 const startRunV11 = startRun;
 startRun = function (mode, mapIdx, opts = {}) {
-  if (mode !== 'coop') return startRunV11(mode, mapIdx, opts);
-  if (!opts.coop && view !== 'play') { openCoopSetup(mapIdx); return; } // Retry from the end screen skips the setup card
+  if (mode !== 'coop') { coopUi.pendingMission = null; return startRunV11(mode, mapIdx, opts); }
+  if (!opts.coop) {
+    // Retry from the end screen keeps the same loadouts and mission
+    if (view === 'play' && S && S.rules && S.rules.coop && S.coop) opts = Object.assign({}, opts, { coop: { load: S.coop.loadInit, mission: S.coop.mission && S.coop.mission.id } });
+    else { openCoopLobby(mapIdx); return; }
+  }
+  const M = opts.coop.mission ? COOP_MISSIONS.find(m => m.id === opts.coop.mission) : null;
+  coopUi.pendingMission = M; coopUi.pendingLoad = opts.coop.load;
+  if (M) mapIdx = Math.max(0, MAPS.findIndex(m => m.id === M.map));
   if (opts.noLoad) beginRun(mode, mapIdx, opts); else showLoading(mapIdx, mode, null, () => beginRun(mode, mapIdx, opts));
 };
 const beginRunV11 = beginRun;
 beginRun = function (mode, mapIdx, opts) {
   beginRunV11(mode, mapIdx, opts);
   if (mode === 'coop') coopSetup(); else S.coop = null;
-  coopUi();
+  coopUi.pendingMission = null; coopUi.pendingLoad = null;
+  coopResEl.hidden = true;
+  coopScreen();
 };
 function coopSetup() {
-  const per = S.gold; S.gold = 0; S.speed = 1; S.auto = false;
-  S.coop = { cash: [per, per], cur: [null, null], sel: [0, 0], ready: [false, false], brk: COOP.first, sellArm: [0, 0], pulses: [], built: [0, 0], msg: [null, null], storm: false, wasActive: false, hold: [0, 0], dirty: true };
+  const per = S.gold, M = coopUi.pendingMission, load = coopUi.pendingLoad || [coopLoadout(0), coopLoadout(1)];
+  S.gold = 0; S.speed = 1; S.auto = false;
+  const st = () => ({ kills: 0, dmgSold: 0, earned: 0, spent: 0, built: 0, upgrades: 0, gifts: 0, repair: 0, crates: 0 });
+  S.coop = {
+    cash: [per, per], load: [load[0].slice(), load[1].slice()], loadInit: [load[0].slice(), load[1].slice()], sel: [0, 0], cur: [null, null], ready: [false, false],
+    brk: M && M.first != null ? M.first : COOP.first, sellArm: [0, 0], pulses: [], msg: [null, null], storm: false, wasActive: false, dirty: true,
+    gifted: [-1, -1], chips: [0, 0], repairs: 0, st: [st(), st()], mission: M || null, flawless: true, livesStart: S.lives, pads: [null, null],
+  };
   const tiles = rankTiles(S.map, 2.4).filter(t => canBuild(t.c, t.r));
   const left = tiles.find(t => t.c < COLS / 2) || tiles[0] || { c: 3, r: 3 }, right = tiles.find(t => t.c >= COLS / 2 && t !== left) || tiles[1] || { c: COLS - 4, r: 3 };
   S.coop.cur = [{ c: left.c, r: left.r }, { c: right.c, r: right.r }];
-  S.coop.sel = [0, Math.min(2, coopTowers().length - 1)];
-  addBanner('Blueprint Co-op', `Build phase · first wave in ${COOP.first}s`, '#cfefff');
+  coopAssignPads();
+  addBanner(M ? M.name : 'Co-op', M ? M.desc : `Build phase · first wave in ${S.coop.brk}s`, '#cfefff');
+  if (M && M.start) M.start();
 }
 const saveRunV11 = saveRun; saveRun = function () { if (S && S.rules.coop) return; return saveRunV11(); };
 const clearSaveV11 = clearSave; clearSave = function () { if (S && S.rules.coop) return; return clearSaveV11(); };
 const chatterV11 = chatter; chatter = function (first) { if (S && S.rules.coop) return; chatterV11(first); };
 
-// ----- money: income lands in S.gold and is split straight away; a player's own spending runs against their wallet -----
-function coopSplit() { const C = S && S.coop; if (!C || !S.gold) return; const h = S.gold / 2; C.cash[0] = Math.max(0, C.cash[0] + h); C.cash[1] = Math.max(0, C.cash[1] + h); S.gold = 0; C.dirty = true; }
-function coopAct(p, fn) { coopSplit(); const C = S.coop; S.gold = C.cash[p]; let r; try { r = fn(); } finally { C.cash[p] = S.gold; S.gold = 0; C.dirty = true; } return r; }
+// ----- money -----
+// Income lands in S.gold and is split straight away; each player's own spending runs against their own wallet.
+function coopSplit() {
+  const C = S && S.coop; if (!C || !S.gold) return;
+  const h = S.gold / 2; S.gold = 0;
+  for (const p of [0, 1]) { if (h > 0) C.st[p].earned += h; C.cash[p] = Math.max(0, C.cash[p] + h); }
+  C.dirty = true;
+}
+function coopAct(p, fn) {
+  coopSplit(); const C = S.coop, before = C.cash[p]; S.gold = C.cash[p]; let r;
+  try { r = fn(); } finally { C.cash[p] = Math.max(0, S.gold); S.gold = 0; if (C.cash[p] < before) C.st[p].spent += before - C.cash[p]; C.dirty = true; }
+  return r;
+}
+// A Money Farm pays only the player who built it, with interest on that player's own wallet.
+const farmPayoutV11 = farmPayout;
+farmPayout = function () {
+  const C = S && S.coop; if (!C) return farmPayoutV11();
+  coopSplit();
+  let any = 0;
+  for (const tw of S.towers) {
+    if (tw.type !== 'farm' || tw.owner == null) continue;
+    const L = towerStats(tw), p = tw.owner, amt = Math.round((L.income + (L.interest ? Math.min(L.interestCap, C.cash[p] * L.interest) : 0)) * (S.rules.farmMul || 1));
+    C.cash[p] += amt; C.st[p].earned += amt; S.goldEarned += amt; tw.earned = (tw.earned || 0) + amt; any += amt;
+    addText(tw.x, tw.y - 40, `+$${amt} ${COOP.p[p].name}`, COOP.p[p].col, 17); tw.flash = .6;
+    for (let k = 0; k < 6; k++) S.particles.push({ kind: 'coinfly', x: tw.x, y: tw.y - 10, sx: tw.x + (Math.random() - .5) * 50, sy: tw.y - 50 - Math.random() * 40, vx: 0, vy: 0, life: .8 + k * .05, max: .8 + k * .05, size: 6, color: '#ffd23f' });
+  }
+  if (any) { Sfx.play('cash'); C.dirty = true; }
+};
+// DJs and Commanders only boost their owner's towers.
+const recomputeBuffsV11 = recomputeBuffs;
+recomputeBuffs = function () {
+  if (!S || !S.coop) return recomputeBuffsV11();
+  const all = S.towers;
+  for (const p of [0, 1]) {
+    S.towers = all.filter(t => t.owner === p);
+    try { recomputeBuffsV11(); } finally { S.towers = all; }
+  }
+};
+// kills are credited to whoever owns the tower
+const killEnemyV11 = killEnemy;
+killEnemy = function (e, tw) { if (S && S.coop && tw && tw.owner != null && e.alive) S.coop.st[tw.owner].kills++; return killEnemyV11(e, tw); };
 
+// ===== the clock: build breaks, twists, crates =====
 const updateV11 = update;
 update = function (dt) {
   updateV11(dt);
   const C = S && S.coop; if (!C) return;
   coopSplit();
   if (S.mode !== 'playing') return;
-  // supply crates open on their own: nobody has a free hand to click them
-  for (const d of S.drops || []) if (!d.gone && d.t >= d.fall + .5) { collectDrop(d); coopSplit(); }
-  if (C.wasActive && !S.waveActive) { C.brk = COOP.brk; C.ready = [false, false]; C.storm = false; C.dirty = true; }
+  const M = C.mission;
+  if (S.lives < C.livesStart) C.flawless = false;
+  if (M && M.manualCrates) coopCrates(dt);
+  // supply crates open on their own (unless the mission says go and grab them), or as soon as a cursor touches them
+  for (const d of S.drops || []) {
+    if (d.gone || d.t < d.fall) continue;
+    const grab = [0, 1].find(p => Math.abs(d.x - (C.cur[p].c + .5) * T) < T * .9 && Math.abs(d.y - (C.cur[p].r + .5) * T) < T * .9);
+    if (grab != null) { collectDrop(d); C.st[grab].crates++; coopSplit(); coopSay(grab, 'Crate grabbed!'); continue; }
+    if (!(M && M.manualCrates) && d.t >= d.fall + .5) { collectDrop(d); coopSplit(); }
+  }
+  if (C.wasActive && !S.waveActive) { C.brk = M && M.brk != null ? M.brk : COOP.brk; C.ready = [false, false]; C.storm = false; C.dirty = true; }
   C.wasActive = S.waveActive;
   if (!S.waveActive) {
     C.brk -= dt;
@@ -10407,105 +10870,158 @@ update = function (dt) {
   }
   if (C.storm && Math.random() < dt * .22) { S.flashT = .18; setTimeout(() => Sfx.play('thunder', true), 250 + Math.random() * 500); }
   for (const q of C.pulses) q.t += dt;
-  if (C.pulses.length && C.pulses[0].t > 1.2) C.pulses = C.pulses.filter(q => q.t < 1.2);
+  if (C.pulses.length && C.pulses[0].t > 1) C.pulses = C.pulses.filter(q => q.t < 1);
 };
 const startWaveV11 = startWave;
 startWave = function () {
   const C = S && S.coop, w0 = S && S.wave;
   startWaveV11();
   if (!C || S.wave === w0) return;
-  if (S.wave >= 2) {
+  const M = C.mission;
+  if (S.wave >= 2 && !(M && M.weather)) {
     const L = (COOP_SKY[S.map.def.theme] || ['clear', 'rain', 'windy']).filter(w => w !== S.weather), nw = L[Math.random() * L.length | 0];
     if (nw) { S.weather = nw; S.wind = WIND[nw] || 1; }
   }
+  if (M && M.onWave && M.onWave(S.wave)) return;
   const boss = S.spawnList.some(s => s.type === 'boss'), pool = COOP_TWISTS.filter(t => t.ok());
   if (!boss && pool.length && S.wave >= 2 && Math.random() < .6) {
     const t = pool[Math.random() * pool.length | 0]; t.apply();
     addBanner(t.name, t.desc, '#ffe08a'); coopTone('twist');
-  } else addBanner(S.weather === 'clear' ? 'Clear skies' : 'Weather report', WEATHER_FX[S.weather] ? WEATHER_FX[S.weather].text : WEATHER_TEXT[S.weather] || '', '#cfefff');
+  } else if (S.wave >= 2) addBanner(S.weather === 'clear' ? 'Clear skies' : 'Weather report', WEATHER_FX[S.weather] ? WEATHER_FX[S.weather].text : WEATHER_TEXT[S.weather] || '', '#cfefff');
 };
+// at the end, the co-op scoreboard replaces the usual screens
 const gameOverV11 = gameOver;
 gameOver = function () {
   const C = S && S.coop;
   gameOverV11();
   if (!C) return;
   lbAdd('coop:' + S.map.def.id, { w: S.wave, d: todayKey() }, (a, b) => b.w - a.w);
-  const st = document.getElementById('overStats'); if (st) st.textContent = `${st.textContent} · Alpha built ${C.built[0]}, Bravo built ${C.built[1]}`.replace(/^ · /, '');
+  setTimeout(() => { if (S && S.coop && S.mode === 'over') { ui.over.hidden = true; showCoopResults(false); } }, 1150);
+};
+const victoryV11 = victory;
+victory = function () {
+  const C = S && S.coop;
+  victoryV11();
+  if (!C) return;
+  lbAdd('coop:' + S.map.def.id, { w: S.wave, d: todayKey(), win: 1 }, (a, b) => b.w - a.w);
+  setTimeout(() => { if (S && S.coop && S.mode === 'won') { ui.won.hidden = true; showCoopResults(true); } }, 950);
 };
 
 // ===== player actions =====
-const coopTowers = () => TOWER_ORDER.filter(t => available(t));
-const coopType = p => { const L = coopTowers(); return L[((S.coop.sel[p] % L.length) + L.length) % L.length]; };
+const coopType = p => { const L = S.coop.load[p]; return L[((S.coop.sel[p] % L.length) + L.length) % L.length]; };
 const coopTile = p => S.occ.get(S.coop.cur[p].r * COLS + S.coop.cur[p].c);
-function coopWhy(c, r) {
-  const v = S.map.grid[r][c];
+function coopWhy(p, c, r) {
+  const v = S.map.grid[r][c], pl = plannedBy(c, r), M = coopMission();
+  if (pl != null && pl !== p) return `${COOP.p[pl].name} has this tile planned`;
+  if (M && M.zone && !M.zone(p, c, r)) return `That's ${COOP.p[1 - p].name}'s half of the map`;
   return v === 1 ? "That's the road" : v === 2 ? 'Rocks and trees in the way' : v === 4 ? "Can't build on water" : v === 3 ? 'Too close to HQ or the spawn' : "Can't build here";
 }
+const coopCanBuild = (p, c, r) => { const M = coopMission(); return canBuild(c, r) && (!M || !M.zone || M.zone(p, c, r)); };
 function coopSay(p, text, bad) { S.coop.msg[p] = { text, bad, t: performance.now() }; S.coop.dirty = true; }
-function coopNo(p, text) { Sfx.play('error'); if (text) coopSay(p, text, true); const tl = bpEls.tilt[p]; if (tl && tl.animate && !REDUCED) tl.animate([{ transform: 'rotateX(24deg) translateX(0)' }, { transform: 'rotateX(24deg) translateX(-5px)' }, { transform: 'rotateX(24deg) translateX(5px)' }, { transform: 'rotateX(24deg) translateX(0)' }], { duration: 240 }); }
+function coopNo(p, text) {
+  Sfx.play('error'); if (text) coopSay(p, text, true);
+  const pn = coopUi.panel[p]; if (pn && pn.animate && !REDUCED) pn.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 220 });
+  if (S.coop.pads[p] != null) rumble(S.coop.pads[p], 80, .5);
+}
 function coopMove(p, dc, dr) { const c = S.coop.cur[p]; c.c = clamp(c.c + dc, 0, COLS - 1); c.r = clamp(c.r + dr, 0, ROWS - 1); S.coop.sellArm[p] = 0; S.coop.msg[p] = null; S.coop.dirty = true; coopTone('move', p); }
-function coopPick(p, i) { const L = coopTowers(); S.coop.sel[p] = clamp(i, 0, L.length - 1); Sfx.play('click'); S.coop.dirty = true; }
+function coopPick(p, i) { if (i >= S.coop.load[p].length) return; S.coop.sel[p] = i; Sfx.play('click'); S.coop.dirty = true; }
 function coopCycle(p, d) { S.coop.sel[p] += d; Sfx.play('click'); S.coop.dirty = true; }
-function coopPulse(p, c, r, kind) {
-  S.coop.pulses.push({ p, c, r, kind, t: 0 }); S.coop.dirty = true; coopTone(kind, p);
-  const tl = bpEls.tilt[p]; if (tl && tl.animate && !REDUCED) tl.animate([{ transform: 'rotateX(24deg) scale(1)' }, { transform: 'rotateX(24deg) scale(1.035)' }, { transform: 'rotateX(24deg) scale(1)' }], { duration: 280, easing: 'cubic-bezier(.3,1.6,.5,1)' });
+function coopPulse(p, c, r, kind) { S.coop.pulses.push({ p, c, r, kind, t: 0 }); S.coop.dirty = true; coopTone(kind, p); if (S.coop.pads[p] != null) rumble(S.coop.pads[p], kind === 'build' ? 90 : 50, kind === 'build' ? .7 : .4); }
+function coopBuildAt(p, type, c, r, auto) {
+  const C = S.coop, M = C.mission;
+  if (M && M.limit && S.towers.filter(t => t.owner === p).length >= M.limit) { coopNo(p, `${M.limit} towers each on this mission`); return null; }
+  const nt = coopAct(p, () => buildTower(type, c, r));
+  if (nt) { nt.owner = p; C.st[p].built++; coopPulse(p, c, r, 'build'); coopSay(p, `${TOWERS[type].name} ${auto ? 'auto-built' : 'deployed'}`); }
+  return nt;
 }
 function coopEnter(p) {
   const C = S.coop, cur = C.cur[p], tw = coopTile(p);
   if (tw) {
     if (tw.owner !== p) { coopNo(p, `That's ${COOP.p[tw.owner === 0 ? 0 : 1].name}'s tower`); return; }
-    if (tw.level < 2) { if (coopAct(p, () => upgradeTower(tw))) { coopPulse(p, tw.c, tw.r, 'up'); coopSay(p, `${TOWERS[tw.type].name} upgraded to level ${tw.level + 1}`); } else coopNo(p, `Upgrade needs $${costOf(tw.type, tw.level + 1)}`); }
-    else if (tw.branch == null) coopNo(p, p ? 'Press [ or ] to specialise' : 'Press Z or C to specialise');
+    if (tw.level < 2) { if (coopAct(p, () => upgradeTower(tw))) { C.st[p].upgrades++; coopPulse(p, tw.c, tw.r, 'up'); coopSay(p, `${TOWERS[tw.type].name} → level ${tw.level + 1}`); } else coopNo(p, `Upgrade needs $${costOf(tw.type, tw.level + 1)}`); }
+    else if (tw.branch == null) coopNo(p, 'Pick a specialisation: ' + coopKeys(p).branch);
     else coopNo(p, 'Fully upgraded');
     return;
   }
-  if (!canBuild(cur.c, cur.r)) { coopNo(p, coopWhy(cur.c, cur.r)); return; }
-  const type = coopType(p), cost = costOf(type, 0);
+  const pl = plannedBy(cur.c, cur.r), type = coopType(p);
+  if (pl === p) { cancelPlan(cur.c, cur.r, p); coopSay(p, 'Plan cancelled'); Sfx.play('sell'); C.dirty = true; return; }
+  if (!coopCanBuild(p, cur.c, cur.r)) { coopNo(p, coopWhy(p, cur.c, cur.r)); return; }
   coopSplit();
-  if (C.cash[p] < cost) { coopNo(p, `${TOWERS[type].name} needs $${cost}`); return; }
-  const nt = coopAct(p, () => buildTower(type, cur.c, cur.r));
-  if (nt) { nt.owner = p; C.built[p]++; coopPulse(p, cur.c, cur.r, 'build'); coopSay(p, `${TOWERS[type].name} deployed`); } else coopNo(p);
+  if (C.cash[p] < costOf(type, 0)) { planTower(p, type, cur.c, cur.r); coopSay(p, `Planned: builds itself at $${costOf(type, 0)}`); C.dirty = true; return; }
+  if (!coopBuildAt(p, type, cur.c, cur.r)) coopNo(p);
 }
 function coopBranch(p, b) {
-  const tw = coopTile(p);
+  const tw = coopTile(p), C = S.coop;
   if (!tw || tw.owner !== p) { coopNo(p, tw ? 'Not your tower' : 'Aim at one of your towers'); return; }
   if (tw.level < 2) { coopNo(p, 'Upgrade it to max level first'); return; }
   if (tw.branch != null) { coopNo(p, 'Already specialised'); return; }
-  if (coopAct(p, () => upgradeTower(tw, b))) { coopPulse(p, tw.c, tw.r, 'up'); coopSay(p, BRANCHES[tw.type][b].name + '!'); } else coopNo(p, `Needs $${branchCost(tw.type, b)}`);
+  if (coopAct(p, () => upgradeTower(tw, b))) { C.st[p].upgrades++; coopPulse(p, tw.c, tw.r, 'up'); coopSay(p, BRANCHES[tw.type][b].name + '!'); } else coopNo(p, `Needs $${branchCost(tw.type, b)}`);
 }
 function coopSell(p) {
-  const C = S.coop, tw = coopTile(p), now = performance.now();
-  if (!tw || tw.owner !== p) { coopNo(p, tw ? "You can't sell a teammate's tower" : 'Nothing to sell here'); return; }
+  const C = S.coop, tw = coopTile(p), now = performance.now(), cur = C.cur[p];
+  if (!tw) { if (cancelPlan(cur.c, cur.r, p)) { coopSay(p, 'Plan cancelled'); Sfx.play('sell'); C.dirty = true; } else coopNo(p, 'Nothing to sell here'); return; }
+  if (tw.owner !== p) { coopNo(p, "You can't sell a teammate's tower"); return; }
   if (S.rules.noSell) { coopNo(p, 'No selling here'); return; }
-  if (C.sellArm[p] > now) { C.sellArm[p] = 0; const c = tw.c, r = tw.r; coopAct(p, () => sellTower(tw)); coopPulse(p, c, r, 'sell'); coopSay(p, 'Sold'); return; }
-  C.sellArm[p] = now + 1800; coopSay(p, `Press ${p ? 'Backspace' : 'X'} again to sell for $${Math.floor(tw.spent * SELL_RATE)}`); Sfx.play('tick');
+  if (C.sellArm[p] > now) { C.sellArm[p] = 0; C.st[p].dmgSold += tw.dealt || 0; const c = tw.c, r = tw.r; coopAct(p, () => sellTower(tw)); coopPulse(p, c, r, 'sell'); coopSay(p, 'Sold'); return; }
+  C.sellArm[p] = now + 1800; coopSay(p, `${coopKeys(p).sell} again to sell for $${Math.floor(tw.spent * SELL_RATE)}`); Sfx.play('tick');
 }
 function coopTarget(p) { const tw = coopTile(p); if (!tw || tw.owner !== p) { coopNo(p); return; } S.selected = tw; cycleTarget(); S.selected = null; }
 function coopReady(p) { const C = S.coop; if (S.waveActive) { coopNo(p, 'Wave in progress'); return; } C.ready[p] = !C.ready[p]; C.dirty = true; Sfx.play(C.ready[p] ? 'click' : 'tick'); if (C.ready[p]) coopTone('ready', p); }
+// gifting: $25 to your teammate, once per wave (any time: build break or mid-wave)
+function coopGiftAmt() { const M = coopMission(); return (M && M.giftAmt) || COOP.gift; }
+function coopGift(p) {
+  const C = S.coop, M = C.mission, amt = coopGiftAmt();
+  if (!(M && M.freeGifts) && C.gifted[p] === S.wave) { coopNo(p, 'One gift per wave. You get another next wave'); return; }
+  coopSplit();
+  if (C.cash[p] < amt) { coopNo(p, `You need $${amt} to gift`); return; }
+  C.cash[p] -= amt; C.cash[1 - p] += amt; C.gifted[p] = S.wave; C.st[p].gifts++; C.dirty = true;
+  const a = C.cur[p], b = C.cur[1 - p];
+  for (let k = 0; k < 8; k++) S.particles.push({ kind: 'coinfly', x: (a.c + .5) * T, y: (a.r + .5) * T, sx: (b.c + .5) * T + (Math.random() - .5) * 20, sy: (b.r + .5) * T - 10, vx: 0, vy: 0, life: .7 + k * .06, max: .7 + k * .06, size: 6, color: '#ffd23f' });
+  addText((b.c + .5) * T, b.r * T - 8, `+$${amt} from ${COOP.p[p].name}`, COOP.p[1 - p].col, 16);
+  coopSay(p, `Sent $${amt} to ${COOP.p[1 - p].name}`); coopSay(1 - p, `${COOP.p[p].name} sent you $${amt}!`);
+  coopTone('gift', p); if (C.pads[1 - p] != null) rumble(C.pads[1 - p], 70, .4);
+}
+// repairs: both players chip in quarters of the price; one can cover up to three quarters, but both must pay something.
+// The price climbs with each wave ($10 at wave 1, $50 at wave 5...) and with every repair already made.
+const coopRepairPrice = () => { const M = coopMission(); return Math.round((10 * Math.max(1, S.wave) + 15 * S.coop.repairs) * ((M && M.repairMul) || 1)); };
+function coopRepair(p) {
+  const C = S.coop;
+  if (S.lives >= S.maxLives) { coopNo(p, 'HQ is already at full health'); return; }
+  if (C.chips[p] >= 3) { coopNo(p, `Your share is in. ${COOP.p[1 - p].name} needs to chip in`); return; }
+  const price = coopRepairPrice(), chip = Math.ceil(price / 4);
+  coopSplit();
+  if (C.cash[p] < chip) { coopNo(p, `A share costs $${chip}`); return; }
+  C.cash[p] -= chip; C.chips[p]++; C.st[p].repair += chip; C.st[p].spent += chip; C.dirty = true;
+  coopTone('chip', p);
+  if (C.chips[0] + C.chips[1] >= 4 && C.chips[0] && C.chips[1]) {
+    const h = Math.min(COOP.heal, S.maxLives - S.lives); S.lives += h; C.chips = [0, 0]; C.repairs++;
+    const b = S.map.base; addText(b.x, b.y - 50, `HQ repaired +${h}`, '#7ed957', 20); bump('statLives');
+    for (let k = 0; k < 16; k++) { const a = k / 16 * TAU; S.particles.push({ x: b.x, y: b.y - 20, vx: Math.cos(a) * 90, vy: Math.sin(a) * 90 - 30, life: .6, max: .6, size: 4, color: '#7ed957' }); }
+    S.rings.push({ x: b.x, y: b.y - 10, r: 10, max: 70, life: .6, maxLife: .6, color: '126,217,87' });
+    coopTone('repair'); coopSay(0, 'HQ repaired!'); coopSay(1, 'HQ repaired!');
+  } else coopSay(p, `Repair: ${C.chips[0] + C.chips[1]} of 4 shares in${C.chips[1 - p] ? '' : `. ${COOP.p[1 - p].name} must chip in too`}`);
+}
 
-// One keyboard, two sets of keys. Physical key codes, so it works the same on any layout.
+// ----- keyboard: each player gets their own half of the keyboard -----
 const COOP_KEYS = {
   KeyW: [0, 'move', 0, -1], KeyS: [0, 'move', 0, 1], KeyA: [0, 'move', -1, 0], KeyD: [0, 'move', 1, 0],
-  KeyQ: [0, 'cycle', -1], KeyE: [0, 'cycle', 1], Space: [0, 'enter'], KeyX: [0, 'sell'], KeyZ: [0, 'branch', 0], KeyC: [0, 'branch', 1], KeyR: [0, 'target'], ShiftLeft: [0, 'ready'], KeyF: [0, 'ready'],
+  KeyQ: [0, 'cycle', -1], KeyE: [0, 'cycle', 1], Space: [0, 'enter'], KeyX: [0, 'sell'], KeyZ: [0, 'branch', 0], KeyC: [0, 'branch', 1], KeyR: [0, 'target'],
+  KeyF: [0, 'ready'], ShiftLeft: [0, 'ready'], KeyG: [0, 'gift'], KeyV: [0, 'repair'],
+  Digit1: [0, 'pick', 0], Digit2: [0, 'pick', 1], Digit3: [0, 'pick', 2], Digit4: [0, 'pick', 3], Digit5: [0, 'pick', 4], Digit6: [0, 'pick', 5],
   ArrowUp: [1, 'move', 0, -1], ArrowDown: [1, 'move', 0, 1], ArrowLeft: [1, 'move', -1, 0], ArrowRight: [1, 'move', 1, 0],
   Comma: [1, 'cycle', -1], Period: [1, 'cycle', 1], Enter: [1, 'enter'], NumpadEnter: [1, 'enter'], Backspace: [1, 'sell'], Delete: [1, 'sell'],
-  BracketLeft: [1, 'branch', 0], BracketRight: [1, 'branch', 1], Slash: [1, 'target'], ShiftRight: [1, 'ready'], Quote: [1, 'ready'],
+  BracketLeft: [1, 'branch', 0], BracketRight: [1, 'branch', 1], Quote: [1, 'target'], ShiftRight: [1, 'ready'], Slash: [1, 'ready'], Semicolon: [1, 'gift'], KeyL: [1, 'repair'],
+  Digit7: [1, 'pick', 0], Digit8: [1, 'pick', 1], Digit9: [1, 'pick', 2], Digit0: [1, 'pick', 3], Minus: [1, 'pick', 4], Equal: [1, 'pick', 5],
+  Numpad1: [1, 'pick', 0], Numpad2: [1, 'pick', 1], Numpad3: [1, 'pick', 2], Numpad4: [1, 'pick', 3], Numpad5: [1, 'pick', 4], Numpad6: [1, 'pick', 5],
 };
-for (let n = 1; n <= 9; n++) { COOP_KEYS['Digit' + n] = [0, 'pick', n - 1]; COOP_KEYS['Numpad' + n] = [1, 'pick', n - 1]; }
-window.addEventListener('keydown', ev => {
-  if (!S || !S.coop || view !== 'play' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
-  if (!ui.settings.hidden || !ui.loading.hidden || !ui.cut.hidden || (ev.target && /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName))) return;
-  if (S.mode !== 'playing') return; // the end screens keep their usual keys
-  const k = ev.key.toLowerCase();
-  if (k === 'm') return;
-  ev.stopImmediatePropagation();
-  Sfx.unlock();
-  if (k === 'p' || k === 'escape') { ev.preventDefault(); togglePause(); return; }
-  const a = COOP_KEYS[ev.code]; if (!a) return;
-  ev.preventDefault();
-  if (S.paused) return;
-  const [p, act, x, y] = a;
-  if (ev.repeat && act !== 'move' && act !== 'cycle') return;
+const COOP_PICK_KEYS = [['1', '2', '3', '4', '5', '6'], ['7', '8', '9', '0', '-', '=']];
+function coopKeys(p) {
+  const pad = S && S.coop && S.coop.pads[p] != null;
+  if (pad) return { pad: true, move: '✥', enter: 'A', sell: 'B', gift: 'X', repair: 'Y', cycle: 'LB/RB', branch: 'LT or RT', target: 'R3', ready: 'View', pause: 'Menu' };
+  return p === 0 ? { move: 'WASD', enter: 'Space', sell: 'X', gift: 'G', repair: 'V', cycle: 'Q/E', branch: 'Z or C', target: 'R', ready: 'F', pause: 'P' }
+    : { move: '←↑↓→', enter: 'Enter', sell: 'Backspace', gift: ';', repair: 'L', cycle: ', .', branch: '[ or ]', target: "'", ready: 'R-Shift', pause: 'P' };
+}
+function coopDo(p, act, x, y) {
   if (act === 'move') coopMove(p, x, y);
   else if (act === 'cycle') coopCycle(p, x);
   else if (act === 'pick') coopPick(p, x);
@@ -10514,337 +11030,286 @@ window.addEventListener('keydown', ev => {
   else if (act === 'branch') coopBranch(p, x);
   else if (act === 'target') coopTarget(p);
   else if (act === 'ready') coopReady(p);
+  else if (act === 'gift') coopGift(p);
+  else if (act === 'repair') coopRepair(p);
+}
+window.addEventListener('keydown', ev => {
+  if (!S || !S.coop || view !== 'play' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if (!ui.settings.hidden || !ui.loading.hidden || !ui.cut.hidden || (ev.target && /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName))) return;
+  if (S.mode !== 'playing') return; // the end screens keep their usual keys
+  const k = ev.key.toLowerCase();
+  if (k === 'm') return;
+  ev.stopImmediatePropagation();
+  Sfx.unlock();
+  if (k === 'p' || k === 'escape' || remoteKey(ev) === 'back') { ev.preventDefault(); togglePause(); return; }
+  const a = COOP_KEYS[ev.code]; if (!a) return;
+  ev.preventDefault();
+  if (S.paused) return;
+  const [p, act, x, y] = a;
+  if (ev.repeat && act !== 'move' && act !== 'cycle') return;
+  coopDo(p, act, x, y);
 }, true);
-// The shared map is for watching; building happens on the blueprints.
-for (const t of ['pointerdown', 'pointerup', 'click', 'contextmenu']) cv.addEventListener(t, ev => { if (S && S.coop && S.mode === 'playing') { ev.stopImmediatePropagation(); if (t === 'contextmenu') ev.preventDefault(); } }, true);
+// controllers: the first one plays Alpha, the second Bravo (one controller + keyboard works too)
+function coopAssignPads() {
+  const C = S && S.coop; if (!C) return;
+  const ids = padsNow().map(p => p.index).sort((a, b) => a - b);
+  C.pads = [ids[0] ?? null, ids[1] ?? null];
+}
+window.addEventListener('gamepadconnected', () => { if (S && S.coop) coopAssignPads(); });
+window.addEventListener('gamepaddisconnected', () => { if (S && S.coop) coopAssignPads(); });
+padRoute((i, n) => {
+  if (!S || !S.coop || view !== 'play' || S.mode !== 'playing' || !ui.settings.hidden) return false;
+  const C = S.coop; if (C.pads[0] !== i && C.pads[1] !== i) coopAssignPads();
+  const p = C.pads[0] === i ? 0 : C.pads[1] === i ? 1 : null; if (p == null) return false;
+  if (n === 'menu') { togglePause(); return true; }
+  if (S.paused) return false;
+  const map = { up: ['move', 0, -1], down: ['move', 0, 1], left: ['move', -1, 0], right: ['move', 1, 0], a: ['enter'], b: ['sell'], x: ['gift'], y: ['repair'], lb: ['cycle', -1], rb: ['cycle', 1], lt: ['branch', 0], rt: ['branch', 1], rs: ['target'], ls: ['target'], view: ['ready'] }[n];
+  if (map) coopDo(p, ...map);
+  return true;
+}, true);
+// The mouse aims Alpha's cursor (right-click aims Bravo's); click the same tile again to build.
+cv.addEventListener('pointerdown', ev => {
+  if (!S || !S.coop || view !== 'play' || S.mode !== 'playing') return;
+  ev.stopImmediatePropagation(); ev.preventDefault();
+  if (S.paused) return;
+  Sfx.unlock();
+  const pt = boardPoint(ev); if (pt.c < 0 || pt.r < 0 || pt.c >= COLS || pt.r >= ROWS) return;
+  const p = ev.button === 2 ? 1 : coopUi.mouseP, cur = S.coop.cur[p];
+  if (cur.c === pt.c && cur.r === pt.r) coopEnter(p); else { cur.c = pt.c; cur.r = pt.r; S.coop.sellArm[p] = 0; S.coop.msg[p] = null; S.coop.dirty = true; coopTone('move', p); }
+}, true);
+for (const t of ['pointerup', 'click', 'contextmenu']) cv.addEventListener(t, ev => { if (S && S.coop && S.mode === 'playing') { ev.stopImmediatePropagation(); ev.preventDefault(); } }, true);
 
-// ----- sounds: a holographic pulse for every placement, with a thump as the tower lands -----
+// ----- sounds: a pulse for every placement, a thump as the tower lands -----
 function coopTone(kind, p = 0) {
   if (!(profile.settings.sfx > 0) || !Sfx.ctx || Sfx.ctx.state !== 'running') return;
-  const k = p ? 1.122 : 1; // Bravo's pulses sit a tone higher, so you can hear who built
-  if (kind === 'build') {
-    Sfx.tone(392 * k, 784 * k, .18, .05, 'sine', 0, { lp: 2600, rev: .25 }); Sfx.tone(587 * k, 1175 * k, .14, .03, 'triangle', .05, { lp: 3200 });
-    Sfx.thump(130, .3, .24, .09); Sfx.noise(.14, .05, 420, 90, .09);
-  } else if (kind === 'up') { Sfx.arp([523 * k, 659 * k, 784 * k, 1047 * k], .05, .12, .035, 'sine', { lp: 3200, rev: .3 }); Sfx.thump(160, .18, .14, .12); }
+  const k = p ? 1.122 : 1; // Bravo's sounds sit a tone higher, so you can hear who built
+  if (kind === 'build') { Sfx.tone(392 * k, 784 * k, .18, .05, 'sine', 0, { lp: 2600, rev: .25 }); Sfx.tone(587 * k, 1175 * k, .14, .03, 'triangle', .05, { lp: 3200 }); Sfx.thump(130, .3, .24, .09); Sfx.noise(.14, .05, 420, 90, .09); }
+  else if (kind === 'up') { Sfx.arp([523 * k, 659 * k, 784 * k, 1047 * k], .05, .12, .035, 'sine', { lp: 3200, rev: .3 }); Sfx.thump(160, .18, .14, .12); }
   else if (kind === 'sell') { Sfx.tone(700 * k, 260 * k, .2, .04, 'sine', 0, { lp: 1800 }); Sfx.noise(.1, .03, 1200, 300); }
   else if (kind === 'move') Sfx.tone(1180 * k, 1240 * k, .03, .012, 'sine', 0, { lp: 3000 });
   else if (kind === 'ready') Sfx.arp([440 * k, 660 * k], .07, .1, .03, 'triangle', { lp: 2600 });
+  else if (kind === 'plan') Sfx.arp([660 * k, 880 * k], .06, .09, .025, 'sine', { lp: 3000, rev: .3 });
+  else if (kind === 'gift') Sfx.arp([784, 988, 1175, 1568], .05, .1, .03, 'triangle', { lp: 3600, rev: .3 });
+  else if (kind === 'chip') { Sfx.tone(880 * k, 880 * k, .06, .03, 'square', 0, { lp: 2400 }); Sfx.tone(1320 * k, 1320 * k, .08, .025, 'square', .05, { lp: 2400 }); }
+  else if (kind === 'repair') { Sfx.arp([392, 523, 659, 784, 1047], .06, .16, .04, 'sine', { lp: 3000, rev: .4 }); Sfx.thump(110, .3, .2); }
   else if (kind === 'twist') { Sfx.tone(220, 440, .4, .05, 'sawtooth', 0, { lp: 900, det: 12 }); Sfx.thump(90, .4, .2, .05); }
 }
 
-// ===== the shared map: both cursors, and a little badge under each tower showing who built it =====
+// ===== the shared map: two big cursors and a badge under each tower showing who built it =====
 const drawGhostV11 = drawGhost;
 drawGhost = function (g) {
   drawGhostV11(g);
   const C = S.coop; if (!C || S.mode !== 'playing') return;
-  for (const tw of S.towers) if (tw.owner != null) { rr(g, tw.x - 8, tw.y + 16, 16, 5, 2.5); g.fillStyle = COOP.p[tw.owner].col; g.fill(); ol(g, 1.4); }
+  for (const tw of S.towers) if (tw.owner != null) { rr(g, tw.x - 10, tw.y + 16, 20, 6, 3); g.fillStyle = COOP.p[tw.owner].col; g.fill(); ol(g, 1.6); }
+  const M = C.mission;
+  if (M && M.zone) { // the line between the two halves
+    g.setLineDash([10, 8]); g.lineDashOffset = -S.anim * 12; g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 3; g.beginPath(); g.moveTo(W / 2, 0); g.lineTo(W / 2, H); g.stroke(); g.setLineDash([]);
+  }
+  for (const q of C.pulses) { // a ripple wherever a tower lands, is upgraded or sold
+    const x = (q.c + .5) * T, y = (q.r + .5) * T, col = q.kind === 'sell' ? '255,120,100' : COOP.p[q.p].rgb;
+    for (const lag of [0, .16]) { const kk = clamp((q.t - lag) / .8, 0, 1); if (kk <= 0 || kk >= 1) continue; g.beginPath(); g.arc(x, y, 14 + kk * 60, 0, TAU); g.strokeStyle = `rgba(${col},${(1 - kk) * .9})`; g.lineWidth = 4 * (1 - kk) + 1; g.stroke(); }
+  }
   for (let p = 0; p < 2; p++) {
-    const P = COOP.p[p], { c, r } = C.cur[p], x = c * T, y = r * T, tw = S.occ.get(r * COLS + c), ok = !tw && canBuild(c, r);
-    if (tw) { circle(g, tw.x, tw.y, towerStats(tw).range * T); g.strokeStyle = `rgba(${P.rgb},.7)`; g.lineWidth = 2; g.stroke(); }
+    const P = COOP.p[p], { c, r } = C.cur[p], x = c * T, y = r * T, tw = S.occ.get(r * COLS + c), ok = !tw && coopCanBuild(p, c, r), type = coopType(p);
+    const mine = tw && tw.owner === p, bad = (tw && !mine) || (!tw && !ok && plannedBy(c, r) !== p);
+    rr(g, x + 2, y + 2, T - 4, T - 4, 9); g.fillStyle = bad ? 'rgba(255,70,60,.32)' : `rgba(${P.rgb},.22)`; g.fill();
+    if (tw) { circle(g, tw.x, tw.y, towerStats(tw).range * T); g.strokeStyle = `rgba(${P.rgb},.75)`; g.lineWidth = 2.5; g.stroke(); }
     else if (ok) {
-      const type = coopType(p); drawRange(g, x + T / 2, y + T / 2, TOWERS[type].levels[0].range * T, P.rgb);
-      g.globalAlpha = .5; drawTower(g, { type, level: 0, x: x + T / 2, y: y + T / 2, angle: -Math.PI / 4, flash: 0, recoil: 0, beams: [], seed: 0, charge: .5 }, S.anim); g.globalAlpha = 1;
-    } else { rr(g, x + 3, y + 3, T - 6, T - 6, 8); g.fillStyle = 'rgba(255,70,60,.3)'; g.fill(); }
-    const pp = 3 + Math.sin(S.anim * 6 + p * 2) * 2, L = 12;
+      drawRange(g, x + T / 2, y + T / 2, TOWERS[type].levels[0].range * T, P.rgb);
+      g.globalAlpha = .55; drawTower(g, { type, level: 0, x: x + T / 2, y: y + T / 2, angle: -Math.PI / 4, flash: 0, recoil: 0, beams: [], seed: 0, charge: .5 }, S.anim); g.globalAlpha = 1;
+    }
+    const pp = 4 + Math.sin(S.anim * 6 + p * 2) * 2.5, L = 16;
     g.lineCap = 'round'; g.lineJoin = 'round';
-    for (const [lw, col] of [[7, OUT], [3.5, (tw && tw.owner !== p) || (!tw && !ok) ? '#ff6a5a' : P.col]]) {
+    for (const [lw, col] of [[10, OUT], [5.5, bad ? '#ff5a4a' : P.col]]) {
       g.strokeStyle = col; g.lineWidth = lw; g.beginPath();
       for (const [sx, sy] of [[0, 0], [1, 0], [1, 1], [0, 1]]) { const cx = x + sx * T + (sx ? pp : -pp), cy = y + sy * T + (sy ? pp : -pp), dx = sx ? -1 : 1, dy = sy ? -1 : 1; g.moveTo(cx + dx * L, cy); g.lineTo(cx, cy); g.lineTo(cx, cy + dy * L); }
       g.stroke();
     }
-    drawChip(g, P.name, clamp(x + T / 2, 30, W - 30), y - 12 < 10 ? y + T + 12 : y - 12, 10, P.col);
+    const ly = y - 17 < 12 ? y + T + 17 : y - 17;
+    drawChip(g, P.name, clamp(x + T / 2, 34, W - 34), ly, 13, P.col);
   }
 };
 
-// ===== the blueprints =====
-// Static parts (grid, road, rocks, water, spawn, HQ) are drawn once into a shared layer; each frame only the towers,
-// blips, pulses and cursors go on top, at most 20 times a second.
-const BP = { w: 0, h: 0, dpr: 1, cs: 0, ox: 0, oy: 0, stat: null, sig: '', last: 0, icons: new Map() };
-const bpEls = { tilt: [], cv: [], g: [] };
-function bpIcon(type) { let c = BP.icons.get(type); if (!c) { c = towerIcon(type, 0, 48); BP.icons.set(type, c); } return c; }
-function bpLayout() {
-  const cvs = bpEls.cv[0]; if (!cvs) return;
-  const w = cvs.clientWidth, h = cvs.clientHeight; if (!w || !h) return;
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  BP.w = w; BP.h = h; BP.dpr = dpr; BP.cs = Math.min((w - 12) / COLS, (h - 12) / ROWS); BP.ox = (w - BP.cs * COLS) / 2; BP.oy = (h - BP.cs * ROWS) / 2; BP.sig = '';
-  for (const c of bpEls.cv) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
-  if (S && S.coop) S.coop.dirty = true;
-}
-function bpSig() { let s = S.map.def.id + '|' + BP.w + 'x' + BP.h + '|'; for (const row of S.map.grid) s += row.join(''); return s; }
-function bpStatic() {
-  const { w, h, dpr, cs, ox, oy } = BP, M = S.map, c = BP.stat || (BP.stat = document.createElement('canvas'));
-  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
-  const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.lineCap = 'round'; g.lineJoin = 'round';
-  const bg = g.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#2366b8'); bg.addColorStop(1, '#14427f');
-  rr(g, 0, 0, w, h, 12); g.fillStyle = bg; g.fill();
-  const X = cc => ox + cc * cs, Y = rr0 => oy + rr0 * cs;
-  for (let r = 0; r < ROWS; r++) for (let q = 0; q < COLS; q++) {
-    const v = M.grid[r][q], x = X(q), y = Y(r);
-    if (v === 1) { g.fillStyle = 'rgba(160,220,255,.32)'; g.fillRect(x, y, cs, cs); }
-    else if (v === 2) {
-      g.fillStyle = 'rgba(6,26,64,.42)'; g.fillRect(x, y, cs, cs);
-      g.strokeStyle = 'rgba(190,225,255,.28)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x + 2, y + cs * .55); g.lineTo(x + cs * .55, y + 2); g.moveTo(x + cs * .45, y + cs - 2); g.lineTo(x + cs - 2, y + cs * .45); g.stroke();
-      g.beginPath(); g.arc(x + cs / 2, y + cs / 2, cs * .22, 0, TAU); g.strokeStyle = 'rgba(220,240,255,.55)'; g.lineWidth = 1.2; g.stroke();
-    } else if (v === 4) {
-      g.fillStyle = 'rgba(70,170,255,.38)'; g.fillRect(x, y, cs, cs);
-      g.strokeStyle = 'rgba(220,245,255,.45)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x + 2, y + cs * .5); g.quadraticCurveTo(x + cs * .25, y + cs * .3, x + cs * .5, y + cs * .5); g.quadraticCurveTo(x + cs * .75, y + cs * .7, x + cs - 2, y + cs * .5); g.stroke();
-    } else if (v === 3) { g.fillStyle = 'rgba(255,255,255,.07)'; g.fillRect(x, y, cs, cs); }
-  }
-  // fine and bold grid lines, like drafting paper
-  g.lineWidth = 1;
-  for (let q = 0; q <= COLS; q++) { g.strokeStyle = q % 5 ? 'rgba(190,230,255,.14)' : 'rgba(210,240,255,.32)'; g.beginPath(); g.moveTo(X(q) + .5, oy); g.lineTo(X(q) + .5, oy + ROWS * cs); g.stroke(); }
-  for (let r = 0; r <= ROWS; r++) { g.strokeStyle = r % 5 ? 'rgba(190,230,255,.14)' : 'rgba(210,240,255,.32)'; g.beginPath(); g.moveTo(ox, Y(r) + .5); g.lineTo(ox + COLS * cs, Y(r) + .5); g.stroke(); }
-  // the road gets a crisp white outline where it meets open ground
-  g.strokeStyle = 'rgba(235,248,255,.85)'; g.lineWidth = 1.6; g.beginPath();
-  const road = (q, r) => q >= 0 && r >= 0 && q < COLS && r < ROWS && M.grid[r][q] === 1;
-  for (let r = 0; r < ROWS; r++) for (let q = 0; q < COLS; q++) if (M.grid[r][q] === 1) {
-    const x = X(q), y = Y(r);
-    if (!road(q, r - 1)) { g.moveTo(x, y); g.lineTo(x + cs, y); }
-    if (!road(q, r + 1)) { g.moveTo(x, y + cs); g.lineTo(x + cs, y + cs); }
-    if (!road(q - 1, r)) { g.moveTo(x, y); g.lineTo(x, y + cs); }
-    if (!road(q + 1, r)) { g.moveTo(x + cs, y); g.lineTo(x + cs, y + cs); }
-  }
-  g.stroke();
-  // the route the zombies walk: a dashed centreline with chevrons pointing the way
-  const P = M.pts.map(p => ({ x: ox + p.x / T * cs, y: oy + p.y / T * cs }));
-  g.setLineDash([cs * .35, cs * .3]); g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 1.2; g.beginPath(); P.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.stroke(); g.setLineDash([]);
-  g.strokeStyle = 'rgba(255,214,120,.85)'; g.lineWidth = 1.6;
-  for (let d = cs * .8; d < M.total / T * cs; d += cs * 1.7) {
-    const pt = pointAt(M, d / cs * T), x = ox + pt.x / T * cs, y = oy + pt.y / T * cs, a = Math.atan2(pt.dy, pt.dx), s = cs * .2;
-    g.beginPath(); g.moveTo(x - Math.cos(a - .7) * s, y - Math.sin(a - .7) * s); g.lineTo(x, y); g.lineTo(x - Math.cos(a + .7) * s, y - Math.sin(a + .7) * s); g.stroke();
-  }
-  // spawn and HQ markers
-  const sp = P[0], hq = P[P.length - 1];
-  g.font = `${Math.max(8, cs * .5)}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
-  for (const [pt, label, col] of [[sp, 'SPAWN', '#ff7a6a'], [hq, 'HQ', '#7effa0']]) {
-    const x = clamp(pt.x, ox + cs, ox + COLS * cs - cs);
-    g.beginPath(); g.arc(x, pt.y, cs * .55, 0, TAU); g.fillStyle = 'rgba(10,30,70,.7)'; g.fill(); g.strokeStyle = col; g.lineWidth = 2; g.stroke();
-    g.fillStyle = col; g.fillText(label === 'HQ' ? '★' : '☠', x, pt.y + .5);
-  }
-  // frame with corner ticks
-  rr(g, 1.5, 1.5, w - 3, h - 3, 11); g.strokeStyle = 'rgba(225,245,255,.9)'; g.lineWidth = 2; g.stroke();
-  g.strokeStyle = '#fff'; g.lineWidth = 2.4;
-  for (const [x, y, dx, dy] of [[6, 6, 1, 1], [w - 6, 6, -1, 1], [w - 6, h - 6, -1, -1], [6, h - 6, 1, -1]]) { g.beginPath(); g.moveTo(x + dx * 12, y); g.lineTo(x, y); g.lineTo(x, y + dy * 12); g.stroke(); }
-}
-const easeBack = k => 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2);
-function bpDraw(p, now) {
-  const g = bpEls.g[p]; if (!g) return;
-  const { dpr, cs, ox, oy } = BP, C = S.coop, me = COOP.p[p], X = q => ox + q * cs, Y = r => oy + r * cs;
-  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, g.canvas.width, g.canvas.height); g.drawImage(BP.stat, 0, 0);
-  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.lineCap = 'round'; g.lineJoin = 'round';
-  // live blips for every hostile on the road
-  let n = 0;
-  for (const e of S.enemies) {
-    if (!e.alive || n++ > 180) continue;
-    const x = ox + e.x / T * cs, y = oy + e.y / T * cs, s = e.def && e.def.boss ? 3.4 : 1.8;
-    g.fillStyle = e.def && e.def.fly ? '#ffc4ff' : e.def && e.def.golden ? '#ffe14d' : '#ff6a5a'; g.fillRect(x - s, y - s, s * 2, s * 2);
-  }
-  // towers: your own stand up as glowing 3D blocks; your teammate's show as red squares with their icon
-  const pops = new Map(); for (const q of C.pulses) if (q.kind === 'build' || q.kind === 'up') pops.set(q.r * COLS + q.c, q.t);
-  for (const tw of S.towers) {
-    const x = X(tw.c) + cs * .08, y = Y(tw.r) + cs * .08, s = cs * .84, mine = tw.owner === p, icon = bpIcon(tw.type), pt = pops.get(tw.r * COLS + tw.c);
-    if (mine) {
-      const k = pt != null && pt < .35 ? easeBack(pt / .35) : 1, hgt = cs * (.16 + .07 * tw.level) * k;
-      g.fillStyle = `rgba(${me.rgb},.45)`; g.fillRect(x, y + s - hgt, s, hgt);
-      g.strokeStyle = me.col; g.lineWidth = 1.2; g.strokeRect(x, y + s - hgt, s, hgt);
-      rr(g, x, y - hgt, s, s, 3); g.fillStyle = 'rgba(220,245,255,.3)'; g.fill(); g.strokeStyle = '#eefaff'; g.lineWidth = 1.4; g.stroke();
-      g.drawImage(icon, x + s * .02, y - hgt - s * .12, s * .96, s * .96);
-      for (let i = 0; i <= tw.level; i++) { g.fillStyle = tw.branch != null ? '#ffd23f' : '#eefaff'; g.fillRect(x + 2 + i * 3.5, y - hgt + 2, 2.4, 2.4); }
-    } else {
-      rr(g, x, y, s, s, 3); g.fillStyle = 'rgba(255,64,56,.5)'; g.fill(); g.strokeStyle = '#ff7a6a'; g.lineWidth = 1.6; g.stroke();
-      g.globalAlpha = .85; g.drawImage(icon, x + s * .12, y + s * .06, s * .76, s * .76); g.globalAlpha = 1;
-    }
-  }
-  // pulses ripple out from every placement, upgrade and sale
-  for (const q of C.pulses) {
-    const k = q.t / 1.2, cx = X(q.c) + cs / 2, cy = Y(q.r) + cs / 2, col = q.kind === 'sell' ? '255,120,100' : q.p === p ? me.rgb : '255,90,80';
-    for (const lag of [0, .18]) { const kk = clamp(k - lag, 0, 1); if (kk <= 0 || kk >= 1) continue; g.beginPath(); g.arc(cx, cy, cs * (.4 + kk * 2.2), 0, TAU); g.strokeStyle = `rgba(${col},${(1 - kk) * .9})`; g.lineWidth = 2.2 * (1 - kk) + .6; g.stroke(); }
-  }
-  // the teammate's cursor, faint and dashed, so you can see what they're up to
-  const o = C.cur[1 - p]; g.setLineDash([3, 3]); g.strokeStyle = `rgba(${COOP.p[1 - p].rgb},.75)`; g.lineWidth = 1.4; g.strokeRect(X(o.c) + 1, Y(o.r) + 1, cs - 2, cs - 2); g.setLineDash([]);
-  // your cursor: green light, red "can't", gold over your own tower
-  const cur = C.cur[p], tw = S.occ.get(cur.r * COLS + cur.c), x = X(cur.c), y = Y(cur.r), type = coopType(p), ok = !tw && canBuild(cur.c, cur.r), rich = C.cash[p] >= costOf(type, 0);
-  const bad = (tw && tw.owner !== p) || (!tw && !ok), col = bad ? '#ff5a4a' : tw ? '#ffd23f' : rich ? me.col : '#ff9a4a';
-  if (ok) { g.beginPath(); g.arc(x + cs / 2, y + cs / 2, TOWERS[type].levels[0].range * cs, 0, TAU); g.fillStyle = `rgba(${me.rgb},.1)`; g.fill(); g.setLineDash([4, 4]); g.strokeStyle = `rgba(${me.rgb},.8)`; g.lineWidth = 1.2; g.stroke(); g.setLineDash([]); }
-  if (tw && tw.owner === p) { g.beginPath(); g.arc(x + cs / 2, y + cs / 2, towerStats(tw).range * cs, 0, TAU); g.strokeStyle = 'rgba(255,214,90,.75)'; g.lineWidth = 1.2; g.stroke(); }
-  if (bad) { rr(g, x + 1, y + 1, cs - 2, cs - 2, 3); g.fillStyle = 'rgba(255,60,50,.4)'; g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(x + cs * .3, y + cs * .3); g.lineTo(x + cs * .7, y + cs * .7); g.moveTo(x + cs * .7, y + cs * .3); g.lineTo(x + cs * .3, y + cs * .7); g.stroke(); }
-  const pp = 1.5 + Math.sin(now / 160 + p * 2) * 1.5, L = Math.max(4, cs * .32);
-  for (const [lw, cc] of [[4.5, '#0b2246'], [2.2, col]]) {
-    g.strokeStyle = cc; g.lineWidth = lw; g.beginPath();
-    for (const [sx, sy] of [[0, 0], [1, 0], [1, 1], [0, 1]]) { const cx = x + sx * cs + (sx ? pp : -pp), cy = y + sy * cs + (sy ? pp : -pp), dx = sx ? -1 : 1, dy = sy ? -1 : 1; g.moveTo(cx + dx * L, cy); g.lineTo(cx, cy); g.lineTo(cx, cy + dy * L); }
-    g.stroke();
-  }
-}
-function bpTick(force) {
-  const C = S && S.coop; if (!C || !bpEls.g[0] || ui.play.hidden) return;
-  const now = performance.now();
-  if (!force && !C.dirty && now - BP.last < 50) return;
-  if (!BP.w) bpLayout(); if (!BP.w) return;
-  const sig = bpSig(); if (sig !== BP.sig || !BP.stat) { BP.sig = sig; bpStatic(); }
-  BP.last = now; C.dirty = false;
-  bpDraw(0, now); bpDraw(1, now);
-}
-const renderV11 = render;
-render = function () { renderV11(); if (S && S.coop) bpTick(); };
-
-// ===== the co-op screen: tower strips on top, blueprints and wallets underneath =====
+// ===== the co-op screen: a big panel for each player either side of the map =====
 document.head.insertAdjacentHTML('beforeend', `<style>
-.bp-top,.bp-bot{display:none}
-#play.bp-on .console{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;gap:8px}
-#play.bp-on .side{display:none!important}
-#play.bp-on .bp-top{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-#play.bp-on .bp-bot{display:grid;grid-template-columns:minmax(0,1fr) minmax(200px,250px) minmax(0,1fr);gap:10px;height:clamp(150px,26vh,250px);grid-template-rows:minmax(0,1fr)}
-#play.bp-on .bp-bot>*{min-height:0}
-.bp-strip{display:flex;align-items:center;gap:6px;background:var(--paper);border:3px solid var(--ink);border-radius:18px;box-shadow:0 4px 0 rgba(43,36,24,.45);padding:5px 8px;min-width:0}
-.bp-strip.p1{--pc:#4fd8ff;--pd:#1b7fa0} .bp-strip.p2{--pc:#ffb23f;--pd:#b06a10;flex-direction:row-reverse}
-.bp-who{flex:none;font-family:var(--font-display);font-size:15px;letter-spacing:.04em;color:#fff;background:var(--pd);border:2.5px solid var(--ink);border-radius:999px;padding:2px 10px;text-shadow:0 2px 0 rgba(0,0,0,.3)}
-.bp-tws{display:flex;gap:4px;min-width:0;flex:1;justify-content:flex-start}
-.bp-strip.p2 .bp-tws{justify-content:flex-end}
-.bp-tw{position:relative;flex:1 1 0;min-width:0;max-width:46px;display:flex;flex-direction:column;align-items:center;background:var(--paper-2);border:2.5px solid var(--ink);border-radius:11px;padding:1px 0 2px;box-shadow:0 2px 0 var(--ink);font-size:10.5px;font-weight:900;line-height:1;color:var(--ink);transition:transform .12s var(--pop),background .12s}
-.bp-tw canvas{width:30px;height:30px;max-width:100%}
-.bp-tw kbd{position:absolute;top:-7px;left:-4px;font-family:var(--font-display);font-size:10px;background:#fff;border:2px solid var(--ink);border-radius:6px;padding:0 3px}
-.bp-tw.sel{background:var(--pc);transform:translateY(-3px);box-shadow:0 5px 0 var(--ink)}
-.bp-tw.poor{opacity:.5;filter:grayscale(.6)}
-.bp-pan{display:flex;gap:10px;min-width:0;align-items:stretch}
-.bp-pan.p1{--pc:#4fd8ff;--pd:#1b7fa0} .bp-pan.p2{--pc:#ffb23f;--pd:#b06a10;flex-direction:row-reverse}
-.bp-holo{position:relative;flex:1 1 auto;min-width:0;display:flex;align-items:flex-end;justify-content:center;perspective:640px;perspective-origin:50% -10%}
-.bp-tilt{position:relative;height:calc(100% - 14px);max-width:100%;aspect-ratio:960/624;transform:rotateX(24deg);transform-origin:50% 100%;border-radius:14px;
-  box-shadow:0 0 0 3px #dff4ff,0 0 0 6px var(--ink),0 0 26px 6px rgba(80,190,255,.55);background:#14427f;z-index:1}
-.bp-tilt::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.06) 0 1px,transparent 1px 4px),linear-gradient(180deg,rgba(255,255,255,.16),transparent 45%)}
-.bp-cv{display:block;width:100%;height:100%;border-radius:inherit;touch-action:none}
-.bp-beam{position:absolute;left:10%;right:10%;bottom:6px;top:8%;pointer-events:none;background:linear-gradient(0deg,rgba(120,215,255,.38),rgba(120,215,255,0) 85%);clip-path:polygon(38% 100%,62% 100%,100% 0,0 0)}
-.bp-base{position:absolute;bottom:0;left:50%;width:46%;height:16px;transform:translateX(-50%);border-radius:50%;border:3px solid var(--ink);background:radial-gradient(ellipse at 50% 35%,#e6fbff,#5ec8ff 45%,#1a5c9a 75%);box-shadow:0 0 18px 4px rgba(90,200,255,.6);z-index:2}
-.bp-info{flex:0 1 220px;min-width:150px;min-height:0;display:flex;flex-direction:column;gap:5px;background:var(--paper);border:3px solid var(--ink);border-radius:18px;box-shadow:0 4px 0 rgba(43,36,24,.45);padding:7px 10px;overflow:hidden}
-.bp-cash{display:flex;align-items:baseline;justify-content:space-between;gap:6px;min-width:0}
-.bp-cash b{font-family:var(--font-display);font-size:15px;color:#fff;background:var(--pd);border:2.5px solid var(--ink);border-radius:999px;padding:1px 10px;letter-spacing:.04em}
-.bp-cash span{font-family:var(--font-display);font-size:clamp(16px,1.7vw,25px);white-space:nowrap;color:var(--money);font-variant-numeric:tabular-nums;text-shadow:0 2px 0 rgba(0,0,0,.12)}
-.bp-pick{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:900;color:var(--ink);line-height:1.15}
-.bp-pick canvas{width:34px;height:34px;flex:none}
-.bp-pick small{display:block;font-size:11.5px;color:var(--text-soft)}
-.bp-msg{font-size:12px;font-weight:800;color:var(--text-soft);min-height:15px;line-height:1.25}
-.bp-msg.bad{color:var(--red-d)}
-.bp-keys{margin-top:auto;min-height:0;overflow:hidden;font-size:10.5px;font-weight:800;color:var(--text-soft);line-height:1.6}
-.bp-keys kbd,.bp-mid kbd,.coop-ctl kbd{font-family:var(--font-display);font-size:10.5px;background:#fff8ec;color:var(--ink);border:2px solid var(--ink);border-radius:6px;padding:0 4px;white-space:nowrap}
-.bp-mid{display:flex;flex-direction:column;gap:6px;align-items:stretch;background:var(--paper);border:3px solid var(--ink);border-radius:18px;box-shadow:0 4px 0 rgba(43,36,24,.45);padding:8px 10px;min-width:0;overflow:hidden}
-.bp-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-family:var(--font-display)}
-.bp-row b{font-size:12px;color:var(--text-soft);font-weight:400} .bp-row span{font-size:20px;color:var(--ink);font-variant-numeric:tabular-nums;margin-right:auto;padding-left:4px} .bp-row span:last-child{margin-right:0}
-.bp-timer{text-align:center;font-family:var(--font-display);font-size:16px;color:#fff;background:var(--olive);border:2.5px solid var(--ink);border-radius:999px;padding:3px 8px}
-.bp-timer.go{background:var(--red)}
-.bp-ready{display:grid;grid-template-columns:1fr 1fr;gap:5px}
-.bp-ready button{font-family:var(--font-display);font-size:12.5px;border:2.5px solid var(--ink);border-radius:999px;padding:3px 4px;background:var(--paper-2);color:var(--ink);box-shadow:0 2px 0 var(--ink)}
-.bp-ready button.on{background:var(--green);color:#fff}
-.bp-prev{display:flex;flex-wrap:wrap;align-content:flex-start;gap:3px;justify-content:center;flex:1 1 0;min-height:0;overflow:hidden}
-.bp-prev span{display:inline-flex;align-items:center;gap:2px;font-size:11px;font-weight:900;background:var(--paper-2);border:2px solid var(--ink);border-radius:999px;padding:0 6px 0 2px}
-.bp-prev img{width:18px;height:18px}
-.bp-btns{display:flex;gap:6px;justify-content:center;flex:none}
-.coop-ctl{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;font-size:13px;line-height:1.75}
-.coop-ctl>div{background:#fff8ec;border:3px solid var(--ink);border-radius:14px;padding:8px 12px}
-.coop-ctl h4{font-family:var(--font-display);font-size:16px;margin:0 0 2px;color:var(--ink)}
-.coop-ctl .a h4{color:#1b7fa0} .coop-ctl .b h4{color:#b06a10}
-@media (max-width:1100px){.bp-keys{display:none}.bp-info{flex-basis:170px}.bp-tw kbd{display:none}}
-@media (max-width:760px){#play.bp-on .bp-bot{grid-template-columns:1fr 1fr;height:auto}.bp-mid{grid-column:1/-1;order:-1}.bp-info{display:none}.bp-holo{height:150px}.coop-ctl{grid-template-columns:1fr}}
+.co-panel,.co-top{display:none}
+#play.co-on #over,#play.co-on #won{display:none!important}
+#play.co-on .console{grid-template-columns:minmax(240px,300px) minmax(0,1fr) minmax(240px,300px);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"l t r" "l s r";gap:10px}
+#play.co-on .side{display:none!important}
+#play.co-on .stage{grid-area:s}
+#play.co-on .co-top{grid-area:t;display:flex}
+#play.co-on .co-panel{display:flex}
+.co-panel.p1{grid-area:l} .co-panel.p2{grid-area:r}
+.co-panel{--pc:#4fd8ff;--pd:#16739a;flex-direction:column;gap:9px;min-height:0;overflow:hidden;background:var(--paper);border:4px solid var(--ink);border-radius:24px;box-shadow:0 7px 0 rgba(43,36,24,.45),inset 0 0 0 4px var(--pc);padding:12px 12px 10px}
+.co-panel.p2{--pc:#ffb23f;--pd:#a8600c}
+.co-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.co-name{font-family:var(--font-display);font-size:22px;letter-spacing:.05em;color:#fff;background:var(--pd);border:3px solid var(--ink);border-radius:999px;padding:2px 14px;text-shadow:0 2px 0 rgba(0,0,0,.3);box-shadow:0 3px 0 var(--ink)}
+.co-dev{font-size:12px;font-weight:900;color:var(--text-soft);text-align:right;line-height:1.2}
+.co-cash{font-family:var(--font-display);font-size:clamp(30px,2.8vw,42px);line-height:1;color:var(--money);text-shadow:0 3px 0 rgba(0,0,0,.12);font-variant-numeric:tabular-nums;white-space:nowrap}
+.co-slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding-top:6px}
+.co-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;background:var(--paper-2);border:3px solid var(--ink);border-radius:14px;padding:4px 2px 3px;box-shadow:0 3px 0 var(--ink);font-family:var(--font-display);font-size:14px;color:var(--ink);transition:transform .12s var(--pop),background .12s}
+.co-slot canvas{width:clamp(38px,3.6vw,54px);height:clamp(38px,3.6vw,54px)}
+.co-slot kbd{position:absolute;top:-9px;left:-6px;font-family:var(--font-display);font-size:13px;min-width:22px;text-align:center;background:#fff;border:2.5px solid var(--ink);border-radius:8px;padding:0 4px}
+.co-slot.sel{background:var(--pc);transform:translateY(-4px) scale(1.04);box-shadow:0 7px 0 var(--ink)}
+.co-slot.poor{opacity:.55;filter:grayscale(.55)}
+.co-pick{display:flex;align-items:center;gap:8px;background:#fff8ec;border:3px solid var(--ink);border-radius:14px;padding:6px 8px;min-height:62px}
+.co-pick canvas{width:46px;height:46px;flex:none}
+.co-pick b{display:block;font-family:var(--font-display);font-weight:400;font-size:17px;color:var(--ink);line-height:1.1}
+.co-pick small{display:block;font-size:13px;font-weight:800;color:var(--text-soft);line-height:1.25}
+.co-acts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.co-acts button{display:flex;flex-direction:column;align-items:center;gap:1px;font-family:var(--font-display);font-size:14px;line-height:1.05;border:3px solid var(--ink);border-radius:14px;padding:5px 2px;background:var(--paper-2);color:var(--ink);box-shadow:0 3px 0 var(--ink)}
+.co-acts button small{font-family:var(--font-body);font-size:11px;font-weight:900;color:var(--text-soft)}
+.co-acts button.on{background:var(--green);color:#fff} .co-acts button.on small{color:#eaffdf}
+.co-acts button.used{opacity:.5}
+.co-msg{font-size:14px;font-weight:900;color:var(--text-soft);min-height:19px;line-height:1.3}
+.co-msg.bad{color:var(--red-d)}
+.co-keys{margin-top:auto;display:grid;grid-template-columns:auto 1fr;gap:3px 8px;align-items:center;font-size:12.5px;font-weight:800;color:var(--text-soft);min-height:0;overflow:hidden}
+.co-keys .gb{font-size:11px}
+.co-ib{min-width:38px;font-size:15px!important}
+.co-top{align-items:center;gap:10px;flex-wrap:nowrap!important;overflow:hidden;background:var(--paper);border:4px solid var(--ink);border-radius:20px;box-shadow:0 5px 0 rgba(43,36,24,.45);padding:6px 12px;min-width:0}
+.co-stat{font-family:var(--font-display);font-size:22px;color:var(--ink);white-space:nowrap}
+.co-stat small{font-size:13px;color:var(--text-soft);margin-right:4px}
+.co-timer{font-family:var(--font-display);font-size:18px;color:#fff;background:var(--olive);border:3px solid var(--ink);border-radius:999px;padding:3px 14px;white-space:nowrap}
+.co-timer.go{background:var(--red)}
+.co-fix{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:900;color:var(--text-soft);white-space:nowrap}
+.co-fix i{display:inline-block;width:16px;height:16px;border:2.5px solid var(--ink);border-radius:4px;background:var(--paper-3)}
+.co-fix i.a{background:#4fd8ff} .co-fix i.b{background:#ffb23f}
+.co-prev{display:flex;gap:4px;flex-wrap:nowrap;margin-left:auto;min-width:0;overflow:hidden}
+.co-prev span{display:inline-flex;align-items:center;gap:2px;font-size:13px;font-weight:900;background:var(--paper-2);border:2px solid var(--ink);border-radius:999px;padding:0 8px 0 2px}
+.co-prev img{width:22px;height:22px}
+@media (max-width:1100px){#play.co-on .console{grid-template-columns:minmax(200px,240px) minmax(0,1fr) minmax(200px,240px)}.co-keys{display:none}.co-cash{font-size:28px}}
+@media (max-width:760px){#play.co-on .console{grid-template-columns:1fr 1fr;grid-template-rows:auto auto minmax(0,1fr);grid-template-areas:"t t" "s s" "l r"}.co-slots{grid-template-columns:repeat(3,1fr)}.co-pick,.co-acts .x{display:none}}
+.co-lobby .card{max-width:1080px}
+.co-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+.co-col{--pc:#4fd8ff;--pd:#16739a;background:#fff8ec;border:4px solid var(--ink);border-radius:20px;padding:10px 12px;box-shadow:inset 0 0 0 4px var(--pc)}
+.co-col.p2{--pc:#ffb23f;--pd:#a8600c}
+.co-col h3{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;font-family:var(--font-display);font-weight:400;font-size:22px;color:var(--ink)}
+.co-col h3 span{font-size:15px;color:var(--text-soft)}
+.co-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.co-t{position:relative;display:flex;flex-direction:column;align-items:center;gap:0;background:var(--paper-2);border:3px solid var(--ink);border-radius:14px;padding:4px 2px 3px;font-family:var(--font-display);font-size:12.5px;line-height:1.1;color:var(--ink);box-shadow:0 3px 0 var(--ink);text-align:center;min-width:0}
+.co-t canvas{width:44px;height:44px}
+.co-t span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.co-t.on{background:var(--pc)}
+.co-t.on::after{content:attr(data-n);position:absolute;top:-9px;right:-7px;min-width:22px;height:22px;border-radius:999px;background:var(--pd);color:#fff;border:2.5px solid var(--ink);font-size:13px;line-height:17px}
+.co-t.cur{outline:4px solid var(--pd);outline-offset:2px;transform:translateY(-2px)}
+.co-ready{margin-top:10px;width:100%}
+.co-ready.on{background:var(--green);color:#fff}
+.co-devline{font-size:13px;font-weight:800;color:var(--text-soft);margin-top:6px}
+@media (max-width:760px){.co-cols{grid-template-columns:1fr}}
+.co-res .card{max-width:900px}
+.co-res .crown{font-size:36px;line-height:1}
+.co-board{display:grid;grid-template-columns:1fr auto 1fr;gap:6px 10px;align-items:center;margin-top:12px}
+.co-board .h{font-family:var(--font-display);font-size:24px;text-align:center;color:#fff;border:3px solid var(--ink);border-radius:999px;padding:2px 10px}
+.co-board .h.a{background:#16739a} .co-board .h.b{background:#a8600c}
+.co-board .l{font-size:13px;font-weight:900;color:var(--text-soft);text-align:center;white-space:nowrap}
+.co-board .v{display:flex;align-items:center;gap:6px;font-family:var(--font-display);font-size:19px;color:var(--ink);font-variant-numeric:tabular-nums}
+.co-board .v.a{justify-content:flex-end} .co-board .v i{display:block;height:12px;border-radius:99px;border:2px solid var(--ink)}
+.co-board .v.a i{background:#4fd8ff} .co-board .v.b i{background:#ffb23f}
+.co-board .v.win{color:var(--green-d)}
+.co-mvp{display:flex;justify-content:center;gap:10px;align-items:center;margin-top:10px;font-family:var(--font-display);font-size:24px;color:var(--ink)}
+.co-stars{font-size:40px;letter-spacing:6px;color:#ffd23f;text-shadow:0 3px 0 var(--ink)}
+.co-stars .off{color:#c9bc9c}
+.co-s3{font-size:13px;font-weight:800;color:var(--text-soft)}
 </style>`);
-
-const bpTop = el('div', 'bp-top'), bpBot = el('div', 'bp-bot');
-{ const con = ui.play.querySelector('.console'), stage = con.querySelector('.stage'); con.insertBefore(bpTop, stage); stage.after(bpBot); }
-const bpUi = { strip: [], pick: [], cash: [], msg: [], sig: ['', ''], mid: null, last: 0 };
-function coopBuildUi() {
-  bpTop.innerHTML = ''; bpBot.innerHTML = ''; bpEls.tilt = []; bpEls.cv = []; bpEls.g = [];
-  const L = coopTowers();
-  const keys = [
-    `<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> aim · <kbd>1</kbd>–<kbd>9</kbd> or <kbd>Q</kbd><kbd>E</kbd> pick<br><kbd>Space</kbd> build · <kbd>X</kbd> sell · <kbd>R</kbd> aim mode<br><kbd>Z</kbd><kbd>C</kbd> specialise · <kbd>L-Shift</kbd> ready`,
-    `<kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> aim · <kbd>,</kbd><kbd>.</kbd> pick<br><kbd>Enter</kbd> build · <kbd>⌫</kbd> sell · <kbd>/</kbd> aim mode<br><kbd>[</kbd><kbd>]</kbd> specialise · <kbd>R-Shift</kbd> ready`,
-  ];
-  const panels = [];
-  for (let p = 0; p < 2; p++) {
-    const P = COOP.p[p], cls = 'p' + (p + 1);
-    // top: the towers this player can place
-    const strip = el('div', 'bp-strip ' + cls); strip.appendChild(el('span', 'bp-who', P.name));
-    const tws = el('div', 'bp-tws'); bpUi.strip[p] = [];
-    L.forEach((type, i) => {
-      const b = el('button', 'bp-tw'); b.title = `${TOWERS[type].name} · $${costOf(type, 0)}`;
-      b.appendChild(towerIcon(type, 0, 30)); b.appendChild(el('span', null, '$' + costOf(type, 0)));
-      if (p === 0 && i < 9) b.appendChild(el('kbd', null, String(i + 1)));
-      b.addEventListener('click', () => { Sfx.unlock(); if (S && S.coop) coopPick(p, i); });
-      tws.appendChild(b); bpUi.strip[p].push(b);
-    });
-    strip.appendChild(tws); bpTop.appendChild(strip);
-    // bottom: the holographic blueprint and the wallet
-    const pan = el('div', 'bp-pan ' + cls), holo = el('div', 'bp-holo'), tilt = el('div', 'bp-tilt'), c = el('canvas', 'bp-cv');
-    c.setAttribute('aria-label', `${P.name} blueprint`);
-    holo.appendChild(el('div', 'bp-beam')); tilt.appendChild(c); holo.appendChild(tilt); holo.appendChild(el('div', 'bp-base'));
-    c.addEventListener('pointerdown', ev => {
-      if (!S || !S.coop || S.mode !== 'playing' || S.paused) return;
-      ev.preventDefault(); Sfx.unlock();
-      const q = Math.floor((ev.offsetX - BP.ox) / BP.cs), r = Math.floor((ev.offsetY - BP.oy) / BP.cs);
-      if (q < 0 || r < 0 || q >= COLS || r >= ROWS) return;
-      const cur = S.coop.cur[p], same = cur.c === q && cur.r === r;
-      if (ev.button === 2) { cur.c = q; cur.r = r; coopSell(p); return; }
-      if (same) coopEnter(p); else { cur.c = q; cur.r = r; S.coop.sellArm[p] = 0; S.coop.msg[p] = null; S.coop.dirty = true; coopTone('move', p); }
-    });
-    c.addEventListener('contextmenu', ev => ev.preventDefault());
-    bpEls.tilt[p] = tilt; bpEls.cv[p] = c; bpEls.g[p] = c.getContext('2d');
-    const info = el('div', 'bp-info');
-    const cash = el('div', 'bp-cash'); cash.appendChild(el('b', null, P.name)); bpUi.cash[p] = el('span', null, '$0'); cash.appendChild(bpUi.cash[p]); info.appendChild(cash);
-    bpUi.pick[p] = el('div', 'bp-pick'); info.appendChild(bpUi.pick[p]);
-    bpUi.msg[p] = el('div', 'bp-msg'); info.appendChild(bpUi.msg[p]);
-    const k = el('div', 'bp-keys'); k.innerHTML = keys[p]; info.appendChild(k);
-    pan.appendChild(holo); pan.appendChild(info); panels.push(pan);
-  }
-  // middle: the wave, HQ, the countdown and who's ready
-  const mid = el('div', 'bp-mid');
-  mid.innerHTML = `<div class="bp-row"><b>WAVE</b><span data-k="wave">1</span><b>HQ</b><span data-k="hq">30</span></div>
-    <div class="bp-timer" data-k="timer">Build phase</div><div class="bp-ready"><button data-p="0">Alpha ready?</button><button data-p="1">Bravo ready?</button></div><div class="bp-prev" data-k="prev"></div>`;
-  for (const b of mid.querySelectorAll('.bp-ready button')) b.addEventListener('click', () => { Sfx.unlock(); if (S && S.coop && S.mode === 'playing') coopReady(+b.dataset.p); });
-  const btns = el('div', 'bp-btns');
-  btns.appendChild(btn('btn-wood btn-sm', 'Pause', () => togglePause()));
-  btns.appendChild(btn('btn-wood btn-sm', 'Base', () => goHome()));
-  mid.appendChild(btns);
-  bpUi.mid = mid; bpUi.sig = ['', '']; bpUi.prevKey = '';
-  bpBot.appendChild(panels[0]); bpBot.appendChild(mid); bpBot.appendChild(panels[1]);
-  bpRO.disconnect(); bpRO.observe(bpEls.cv[0]);
+const coopUi = { panel: [], slots: [[], []], pick: [], cash: [], msg: [], acts: [], keys: [], dev: [], top: null, last: 0, mouseP: 0, pendingMission: null, pendingLoad: null, prevKey: '' };
+{
+  const con = ui.play.querySelector('.console');
+  for (let p = 0; p < 2; p++) { const pn = el('div', 'co-panel p' + (p + 1)); con.appendChild(pn); coopUi.panel[p] = pn; }
+  coopUi.top = el('div', 'co-top'); con.appendChild(coopUi.top);
 }
-const bpRO = new ResizeObserver(() => { bpLayout(); bpTick(true); });
-function coopUi() {
+function coopScreen() {
   const on = !!(S && S.coop);
-  const was = ui.play.classList.contains('bp-on');
-  ui.play.classList.toggle('bp-on', on);
-  if (on) { coopBuildUi(); BP.w = 0; }
+  const was = ui.play.classList.contains('co-on');
+  ui.play.classList.toggle('co-on', on);
+  if (on) coopBuildPanels();
   if (on !== was || on) requestAnimationFrame(() => { fitCanvas(); window.dispatchEvent(new Event('resize')); });
 }
-// The wallets, the strips and the middle panel only touch the page when something they show has changed.
-function coopSyncUi() {
-  const C = S.coop, now = performance.now(); if (!bpUi.mid || now - bpUi.last < 120) return; bpUi.last = now;
-  const L = coopTowers();
+function coopBuildPanels() {
+  const C = S.coop;
   for (let p = 0; p < 2; p++) {
-    const cash = Math.floor(C.cash[p]), sel = ((C.sel[p] % L.length) + L.length) % L.length;
-    const t = '$' + fmt(cash); if (bpUi.cash[p].textContent !== t) bpUi.cash[p].textContent = t;
+    const P = COOP.p[p], pn = coopUi.panel[p]; pn.innerHTML = '';
+    const head = el('div', 'co-head'); head.appendChild(el('span', 'co-name', P.name)); coopUi.dev[p] = el('span', 'co-dev'); head.appendChild(coopUi.dev[p]); pn.appendChild(head);
+    coopUi.cash[p] = el('div', 'co-cash', '$0'); pn.appendChild(coopUi.cash[p]);
+    const slots = el('div', 'co-slots'); coopUi.slots[p] = [];
+    C.load[p].forEach((type, i) => {
+      const b = el('button', 'co-slot'); b.title = `${TOWERS[type].name} · $${costOf(type, 0)}`;
+      b.appendChild(towerIcon(type, 0, 54)); b.appendChild(el('span', null, '$' + costOf(type, 0))); b.appendChild(el('kbd', null, COOP_PICK_KEYS[p][i]));
+      b.addEventListener('click', () => { Sfx.unlock(); if (S && S.coop) { coopPick(p, i); coopUi.mouseP = p; } });
+      slots.appendChild(b); coopUi.slots[p].push(b);
+    });
+    pn.appendChild(slots);
+    coopUi.pick[p] = el('div', 'co-pick'); pn.appendChild(coopUi.pick[p]);
+    const acts = el('div', 'co-acts'); coopUi.acts[p] = {};
+    for (const [id, label] of [['gift', `Gift $${coopGiftAmt()}`], ['repair', 'Repair'], ['ready', 'Ready']]) {
+      const b = el('button'); b.appendChild(document.createTextNode(label)); const sm = el('small'); b.appendChild(sm); b._sm = sm;
+      b.addEventListener('click', () => { Sfx.unlock(); if (S && S.coop && S.mode === 'playing' && !S.paused) coopDo(p, id); });
+      acts.appendChild(b); coopUi.acts[p][id] = b;
+    }
+    pn.appendChild(acts);
+    coopUi.msg[p] = el('div', 'co-msg'); pn.appendChild(coopUi.msg[p]);
+    coopUi.keys[p] = el('div', 'co-keys'); pn.appendChild(coopUi.keys[p]);
+    pn.addEventListener('pointerdown', () => { coopUi.mouseP = p; });
+    coopUi.slots[p]._sig = ''; coopUi.dev[p]._sig = ''; coopUi.pick[p]._k = '';
+  }
+  const top = coopUi.top;
+  top.innerHTML = `<span class="co-stat"><small>WAVE</small><span data-k="wave">1</span></span><span class="co-stat"><small>HQ</small><span data-k="hq">30</span></span>
+    <span class="co-timer" data-k="timer">Build phase</span><span class="co-fix" data-k="fix"></span><span class="co-prev" data-k="prev"></span>`;
+  const pb = btn('btn-wood btn-sm co-ib', '❚❚', () => togglePause()); pb.setAttribute('aria-label', 'Pause'); pb.title = 'Pause'; top.appendChild(pb);
+  const hb = btn('btn-wood btn-sm co-ib', '⌂', () => goHome()); hb.setAttribute('aria-label', 'Back to base'); hb.title = 'Back to base'; top.appendChild(hb);
+  coopUi.prevKey = '';
+}
+function coopKeysHtml(p) {
+  const k = coopKeys(p), G = (c, t) => `<span class="gb ${c}">${t}</span>`, kb = t => G('k', t);
+  if (k.pad) return [[G('s', '✥'), 'move'], [G('a', 'A'), 'build / upgrade'], [G('b', 'B'), 'sell (twice)'], [G('s', 'LB') + G('s', 'RB'), 'tower'], [G('s', 'LT') + G('s', 'RT'), 'specialise'], [G('x', 'X'), `gift $${coopGiftAmt()}`], [G('y', 'Y'), 'repair share'], [G('s', '⧉'), 'ready'], [G('s', '☰'), 'pause']];
+  return [[kb(k.move), 'move'], [kb(COOP_PICK_KEYS[p][0]) + '–' + kb(COOP_PICK_KEYS[p][5]), 'tower'], [kb(k.enter), 'build / upgrade'], [kb(k.sell), 'sell (twice)'], [kb(k.branch), 'specialise'], [kb(k.gift), `gift $${coopGiftAmt()}`], [kb(k.repair), 'repair share'], [kb(k.ready), 'ready'], [kb('P'), 'pause']];
+}
+// the panels only touch the page when something they show has changed
+function coopSyncUi() {
+  const C = S.coop, now = performance.now(); if (!coopUi.top || now - coopUi.last < 110) return; coopUi.last = now;
+  const devSig = C.pads.join(',');
+  for (let p = 0; p < 2; p++) {
+    const L = C.load[p], cash = Math.floor(C.cash[p]), sel = ((C.sel[p] % L.length) + L.length) % L.length;
+    const t = '$' + fmt(cash); if (coopUi.cash[p].textContent !== t) coopUi.cash[p].textContent = t;
     const sig = sel + '|' + L.map(type => cash >= costOf(type, 0) ? 1 : 0).join('');
-    if (sig !== bpUi.sig[p]) { bpUi.sig[p] = sig; bpUi.strip[p].forEach((b, i) => { b.classList.toggle('sel', i === sel); b.classList.toggle('poor', cash < costOf(L[i], 0)); }); }
+    if (coopUi.slots[p]._sig !== sig) { coopUi.slots[p]._sig = sig; coopUi.slots[p].forEach((b, i) => { b.classList.toggle('sel', i === sel); b.classList.toggle('poor', cash < costOf(L[i], 0)); }); }
+    if (coopUi.dev[p]._sig !== devSig) {
+      coopUi.dev[p]._sig = devSig; const pad = C.pads[p] != null;
+      coopUi.dev[p].textContent = pad ? `🎮 Controller ${C.pads[p] + 1}` : p ? '⌨ Right hand' : '⌨ Left hand';
+      coopUi.keys[p].innerHTML = coopKeysHtml(p).map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
+      coopUi.slots[p].forEach(b => { const kb = b.querySelector('kbd'); if (kb) kb.hidden = pad; });
+    }
     // what the cursor is on
-    const cur = C.cur[p], tw = S.occ.get(cur.r * COLS + cur.c), type = L[sel];
-    let pk, line;
-    if (tw && tw.owner === p) { pk = tw.type + ':' + tw.level + ':' + tw.branch; line = tw.level < 2 ? `Upgrade to level ${tw.level + 2}: $${costOf(tw.type, tw.level + 1)}` : tw.branch == null ? `${BRANCHES[tw.type][0].name} or ${BRANCHES[tw.type][1].name}` : (BRANCHES[tw.type][tw.branch] || {}).name || 'Fully upgraded'; }
-    else if (tw) { pk = 'mate:' + tw.type; line = `${COOP.p[1 - p].name}'s ${TOWERS[tw.type].name}`; }
-    else { pk = 'new:' + type; line = canBuild(cur.c, cur.r) ? `Build for $${costOf(type, 0)}` : coopWhy(cur.c, cur.r); }
-    const key = pk + '|' + line;
-    if (bpUi.pick[p].dataset.k !== key) {
-      bpUi.pick[p].dataset.k = key; bpUi.pick[p].innerHTML = '';
-      bpUi.pick[p].appendChild(towerIcon(tw ? tw.type : type, tw ? tw.level : 0, 34));
-      const d = el('div', null, TOWERS[tw ? tw.type : type].name); d.appendChild(el('small', null, line)); bpUi.pick[p].appendChild(d);
+    const cur = C.cur[p], tw = S.occ.get(cur.r * COLS + cur.c), type = L[sel], pl = plannedBy(cur.c, cur.r);
+    let line; const icon = tw ? tw.type : type, lvl = tw ? tw.level : 0;
+    if (tw && tw.owner === p) line = tw.level < 2 ? `Upgrade to level ${tw.level + 2}: $${costOf(tw.type, tw.level + 1)}` : tw.branch == null ? `${BRANCHES[tw.type][0].name} or ${BRANCHES[tw.type][1].name}` : (BRANCHES[tw.type][tw.branch] || {}).name || 'Fully upgraded';
+    else if (tw) line = `${COOP.p[1 - p].name}'s tower`;
+    else if (pl === p) line = `Planned · ${coopKeys(p).enter} again to cancel`;
+    else if (coopCanBuild(p, cur.c, cur.r)) line = cash >= costOf(type, 0) ? `Build for $${costOf(type, 0)}` : `$${costOf(type, 0)} · press to plan it`;
+    else line = coopWhy(p, cur.c, cur.r);
+    const key = icon + lvl + '|' + line;
+    if (coopUi.pick[p]._k !== key) {
+      coopUi.pick[p]._k = key; coopUi.pick[p].innerHTML = '';
+      coopUi.pick[p].appendChild(towerIcon(icon, lvl, 46));
+      const d = el('div'); d.appendChild(el('b', null, TOWERS[icon].name)); d.appendChild(el('small', null, line)); coopUi.pick[p].appendChild(d);
     }
     const m = C.msg[p], mt = m && now - m.t < 3500 ? m.text : '';
-    if (bpUi.msg[p].textContent !== mt) { bpUi.msg[p].textContent = mt; bpUi.msg[p].classList.toggle('bad', !!(m && m.bad)); }
+    if (coopUi.msg[p].textContent !== mt) { coopUi.msg[p].textContent = mt; coopUi.msg[p].classList.toggle('bad', !!(m && m.bad)); }
+    const A = coopUi.acts[p], k = coopKeys(p), price = coopRepairPrice(), freeG = C.mission && C.mission.freeGifts, used = !freeG && C.gifted[p] === S.wave;
+    const g1 = used ? 'next wave' : k.gift; if (A.gift._sm.textContent !== g1) { A.gift._sm.textContent = g1; A.gift.classList.toggle('used', used); }
+    const r1 = S.lives >= S.maxLives ? 'HQ full' : `$${Math.ceil(price / 4)} share`; if (A.repair._sm.textContent !== r1) A.repair._sm.textContent = r1;
+    const d1 = C.ready[p] ? 'waiting…' : k.ready; if (A.ready._sm.textContent !== d1) { A.ready._sm.textContent = d1; A.ready.classList.toggle('on', C.ready[p]); }
+    A.ready.disabled = S.waveActive;
   }
-  const q = s => bpUi.mid.querySelector(`[data-k="${s}"]`);
-  const wv = `${S.wave}${S.rules.maxWave && !S.endlessCont ? ' / ' + S.rules.maxWave : ''}`; if (q('wave').textContent !== wv) q('wave').textContent = wv;
+  const q = s => coopUi.top.querySelector(`[data-k="${s}"]`);
+  const wv = `${S.wave} / ${S.rules.maxWave}`; if (q('wave').textContent !== wv) q('wave').textContent = wv;
   const hq = `♥ ${Math.max(0, S.lives)}`; if (q('hq').textContent !== hq) q('hq').textContent = hq;
   const tm = q('timer'), tt = S.waveActive ? `Wave ${S.wave} incoming` : S.wave === 0 ? `First wave in ${Math.max(0, Math.ceil(C.brk))}` : `Next wave in ${Math.max(0, Math.ceil(C.brk))}`;
   if (tm.textContent !== tt) { tm.textContent = tt; tm.classList.toggle('go', S.waveActive); }
-  bpUi.mid.querySelectorAll('.bp-ready button').forEach((b, p) => { const on = C.ready[p], t = on ? `${COOP.p[p].name} ✓` : `${COOP.p[p].name} ready?`; if (b.textContent !== t) { b.textContent = t; b.classList.toggle('on', on); } b.disabled = S.waveActive; });
+  const fx = q('fix'), fk = C.chips.join(',') + '|' + coopRepairPrice() + '|' + (S.lives >= S.maxLives);
+  if (fx._k !== fk) { fx._k = fk; fx.innerHTML = S.lives >= S.maxLives ? 'HQ at full health' : `Repair $${coopRepairPrice()} ` + [0, 1, 2, 3].map(i => `<i class="${i < C.chips[0] ? 'a' : i < C.chips[0] + C.chips[1] ? 'b' : ''}"></i>`).join(''); }
   const n = S.waveActive && S.spawnIdx < S.spawnList.length ? S.wave : S.wave + 1;
-  if (bpUi.prevKey !== n + ':' + S.waveActive) {
-    bpUi.prevKey = n + ':' + S.waveActive;
+  if (coopUi.prevKey !== n + ':' + S.waveActive) {
+    coopUi.prevKey = n + ':' + S.waveActive;
     const counts = {}; for (const s of buildWave(n, S.rules)) { const k = s.king || s.mini ? 'boss' : s.type; counts[k] = (counts[k] || 0) + 1; }
     const box = q('prev'); box.innerHTML = '';
     for (const type of Object.keys(counts)) { if (!ENEMIES[type]) continue; const chip = el('span'); const img = el('img'); img.alt = ''; img.src = enemyIcon(type, S.map.def.theme); chip.appendChild(img); chip.appendChild(document.createTextNode(`${counts[type]}`)); chip.title = ENEMIES[type].name; box.appendChild(chip); }
@@ -10853,42 +11318,337 @@ function coopSyncUi() {
 const syncHudV11 = syncHud;
 syncHud = function () { syncHudV11(); if (S && S.coop) coopSyncUi(); };
 
-// ===== setup card =====
-const coopSetupEl = el('div', 'modal'); coopSetupEl.hidden = true; document.body.appendChild(coopSetupEl);
-function openCoopSetup(mapIdx) {
-  const def = MAPS[mapIdx]; coopSetupEl.innerHTML = '';
-  const card = el('div', 'card'); card.style.maxWidth = '780px';
-  card.innerHTML = `<div class="flex items-start justify-between gap-3"><div><h1>Blueprint Co-op</h1><div class="tag">${esc(def.name)} · two players, one keyboard. Each of you has a wallet and a holographic blueprint under the map. Every coin you earn is split evenly. Plan on your blueprint and the tower drops onto the battlefield.</div></div></div>`;
-  card.firstChild.appendChild(btn('btn-wood btn-sm', 'Back', () => { coopSetupEl.hidden = true; }));
-  const ctl = el('div', 'coop-ctl');
-  ctl.innerHTML = `<div class="a"><h4>Alpha · left blueprint</h4><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move your cursor<br><kbd>1</kbd>–<kbd>9</kbd> pick a tower, <kbd>Q</kbd> <kbd>E</kbd> flip through all of them<br><kbd>Space</kbd> build, or upgrade your tower<br><kbd>Z</kbd> <kbd>C</kbd> specialise · <kbd>X</kbd> twice to sell<br><kbd>R</kbd> targeting · <kbd>Left Shift</kbd> ready for the next wave</div>
-    <div class="b"><h4>Bravo · right blueprint</h4><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> move your cursor<br><kbd>,</kbd> <kbd>.</kbd> flip through towers (or numpad 1–9)<br><kbd>Enter</kbd> build, or upgrade your tower<br><kbd>[</kbd> <kbd>]</kbd> specialise · <kbd>Backspace</kbd> twice to sell<br><kbd>/</kbd> targeting · <kbd>Right Shift</kbd> ready for the next wave</div>`;
-  card.appendChild(ctl);
-  card.appendChild(el('div', 'tag mt-3', 'You can also click your own blueprint: click a tile to aim, click it again to build. Red squares are your teammate\'s towers. Each of you starts with 70% of the usual money, and the waves are a bit tougher. Weather turns every wave, and some waves bring a twist. P or Esc pauses.'));
-  const go = btn('btn-go btn-big mt-4', 'Start co-op', () => { coopSetupEl.hidden = true; ui.picker.hidden = true; ui.modesModal.hidden = true; Sfx.unlock(); startRun('coop', mapIdx, { coop: true }); });
-  card.appendChild(go); coopSetupEl.appendChild(card); coopSetupEl.hidden = false; go.focus({ preventScroll: true });
+// ===== the lobby: each player picks six towers =====
+const coopLobbyEl = el('div', 'modal co-lobby'); coopLobbyEl.hidden = true; document.body.appendChild(coopLobbyEl);
+const LOB = { pick: [[], []], cur: [0, 0], ready: [false, false], map: 0, mission: null, cells: [[], []], btn: [], cnt: [] };
+function openCoopLobby(mapIdx, mission) {
+  LOB.map = mapIdx || 0; LOB.mission = mission || null; LOB.pick = [coopLoadout(0), coopLoadout(1)]; LOB.cur = [0, 0]; LOB.ready = [false, false];
+  const M = LOB.mission, def = MAPS[M ? Math.max(0, MAPS.findIndex(m => m.id === M.map)) : LOB.map];
+  coopLobbyEl.innerHTML = '';
+  const card = el('div', 'card');
+  const head = el('div', 'flex items-start justify-between gap-3'), ht = el('div');
+  ht.appendChild(el('h1', null, M ? `Mission ${M.n}: ${M.name}` : 'Co-op'));
+  ht.appendChild(el('div', 'tag', M ? `${def.name} · ${M.waves} waves · ${M.desc}` : `${def.name} · two players, separate wallets. Pick six towers each. Kill money is split evenly, Money Farms pay their owner, and DJs and Commanders only boost their owner's towers.`));
+  head.appendChild(ht); head.appendChild(btn('btn-wood btn-sm', 'Back', () => closeCoopLobby())); card.appendChild(head);
+  const cols = el('div', 'co-cols');
+  for (let p = 0; p < 2; p++) {
+    const P = COOP.p[p], col = el('div', 'co-col p' + (p + 1)), h = el('h3');
+    h.appendChild(document.createTextNode(P.name)); LOB.cnt[p] = el('span'); h.appendChild(LOB.cnt[p]); col.appendChild(h);
+    const grid = el('div', 'co-grid'); LOB.cells[p] = [];
+    TOWER_ORDER.forEach((type, i) => {
+      const b = el('button', 'co-t'); b.title = `${TOWERS[type].name}: ${TOWERS[type].role || ''}`;
+      b.appendChild(towerIcon(type, 0, 44)); b.appendChild(el('span', null, TOWERS[type].name)); b.appendChild(el('span', null, '$' + costOf(type, 0)));
+      b.addEventListener('click', () => { Sfx.unlock(); LOB.cur[p] = i; lobToggle(p, type); });
+      grid.appendChild(b); LOB.cells[p].push(b);
+    });
+    col.appendChild(grid);
+    const rb = btn('btn-wood btn-big co-ready', 'Ready', () => lobReady(p)); col.appendChild(rb); LOB.btn[p] = rb;
+    const dv = el('div', 'co-devline'); dv.dataset.p = p; col.appendChild(dv);
+    cols.appendChild(col);
+  }
+  card.appendChild(cols);
+  card.appendChild(el('div', 'tag mt-3', 'Both players press Ready to start. Click towers, or use your keys or controller. Esc or B goes back.'));
+  coopLobbyEl.appendChild(card); coopLobbyEl.hidden = false;
+  lobDraw();
 }
-coopSetupEl.addEventListener('click', ev => { if (ev.target === coopSetupEl) coopSetupEl.hidden = true; });
-window.addEventListener('keydown', ev => { if (!coopSetupEl.hidden && ev.key === 'Escape') { coopSetupEl.hidden = true; ev.stopImmediatePropagation(); } }, true);
+function closeCoopLobby() { coopLobbyEl.hidden = true; }
+const lobPads = () => { const ids = padsNow().map(p => p.index).sort((a, b) => a - b); return [ids[0] ?? null, ids[1] ?? null]; };
+function lobDraw() {
+  const pads = lobPads();
+  for (let p = 0; p < 2; p++) {
+    LOB.cells[p].forEach((b, i) => { const type = TOWER_ORDER[i], k = LOB.pick[p].indexOf(type); b.classList.toggle('on', k >= 0); b.dataset.n = k >= 0 ? k + 1 : ''; b.classList.toggle('cur', LOB.cur[p] === i && Input.mode !== 'mouse' && Input.mode !== 'touch'); });
+    LOB.cnt[p].textContent = `${LOB.pick[p].length} / ${COOP.slots} picked`;
+    LOB.btn[p].textContent = LOB.ready[p] ? `${COOP.p[p].name} ready ✓` : LOB.pick[p].length < COOP.slots ? `Pick ${COOP.slots - LOB.pick[p].length} more` : 'Ready';
+    LOB.btn[p].classList.toggle('on', LOB.ready[p]);
+    const dv = coopLobbyEl.querySelector(`.co-devline[data-p="${p}"]`);
+    if (dv) dv.innerHTML = pads[p] != null ? `🎮 Controller ${pads[p] + 1}: <span class="gb s">✥</span> move · <span class="gb a">A</span> pick · <span class="gb s">⧉</span> ready · <span class="gb b">B</span> back`
+      : p ? '⌨ Arrows move · Enter picks · Right-Shift readies' : '⌨ WASD move · Space picks · F readies';
+  }
+}
+function lobToggle(p, type) {
+  const L = LOB.pick[p], k = L.indexOf(type);
+  if (k >= 0) L.splice(k, 1); else if (L.length < COOP.slots) L.push(type); else { Sfx.play('error'); showToast(`${COOP.p[p].name}: six towers max`, 'Unpick one to swap it out'); return; }
+  LOB.ready[p] = false; Sfx.play('click', true); lobDraw();
+}
+function lobReady(p) {
+  const need = COOP.slots - LOB.pick[p].length;
+  if (need > 0) { Sfx.play('error'); showToast(`${COOP.p[p].name}: pick ${need} more tower${need === 1 ? '' : 's'}`); return; }
+  LOB.ready[p] = !LOB.ready[p]; Sfx.play('click', true); lobDraw();
+  if (LOB.ready[0] && LOB.ready[1]) {
+    const c = coopSaved(); c.load = [LOB.pick[0].slice(), LOB.pick[1].slice()]; saveProfile();
+    closeCoopLobby(); ui.picker.hidden = true; ui.modesModal.hidden = true; coopCampEl.hidden = true;
+    Sfx.unlock(); startRun('coop', LOB.map, { coop: { load: [LOB.pick[0].slice(), LOB.pick[1].slice()], mission: LOB.mission && LOB.mission.id } });
+  }
+}
+function lobMove(p, dc, dr) { const n = TOWER_ORDER.length, i = LOB.cur[p] + dc + dr * 5; if (i < 0 || i >= n) return; LOB.cur[p] = i; Sfx.play('tick', true); lobDraw(); }
+function lobAct(p, act, x, y) {
+  if (act === 'move') lobMove(p, x, y);
+  else if (act === 'enter') lobToggle(p, TOWER_ORDER[LOB.cur[p]]);
+  else if (act === 'ready') lobReady(p);
+}
+coopLobbyEl.addEventListener('click', ev => { if (ev.target === coopLobbyEl) closeCoopLobby(); });
+window.addEventListener('keydown', ev => {
+  if (coopLobbyEl.hidden || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if (ev.key === 'Escape' || remoteKey(ev) === 'back') { closeCoopLobby(); ev.stopImmediatePropagation(); ev.preventDefault(); return; }
+  if (!ev.isTrusted && ev.key === 'Escape') return;
+  const a = COOP_KEYS[ev.code]; if (!a) return;
+  const [p, act, x, y] = a; if (!['move', 'enter', 'ready'].includes(act)) return;
+  ev.preventDefault(); ev.stopImmediatePropagation(); if (ev.repeat && act !== 'move') return;
+  lobAct(p, act, x, y);
+}, true);
+padRoute((i, n) => {
+  if (coopLobbyEl.hidden) return false;
+  const pads = lobPads(), p = pads[1] === i ? 1 : 0;
+  if (n === 'b') { if (LOB.ready[p]) lobReady(p); else closeCoopLobby(); return true; }
+  const map = { up: ['move', 0, -1], down: ['move', 0, 1], left: ['move', -1, 0], right: ['move', 1, 0], a: ['enter'], view: ['ready'], menu: ['ready'] }[n];
+  if (map) lobAct(p, ...map);
+  return true;
+}, true);
+window.addEventListener('gamepadconnected', () => { if (!coopLobbyEl.hidden) lobDraw(); });
+window.addEventListener('gamepaddisconnected', () => { if (!coopLobbyEl.hidden) lobDraw(); });
 
-// mode card art: a little blueprint with two blocks on it
+// ===== results: who did best =====
+const coopResEl = el('div', 'overlay co-res'); coopResEl.hidden = true; document.querySelector('.stage-ov').appendChild(coopResEl);
+function coopScores() {
+  const C = S.coop;
+  const out = [0, 1].map(p => {
+    const mine = S.towers.filter(t => t.owner === p), st = C.st[p], dmg = Math.round(st.dmgSold + mine.reduce((a, t) => a + (t.dealt || 0), 0));
+    const best = mine.slice().sort((a, b) => (b.dealt || 0) - (a.dealt || 0))[0];
+    return { p, dmg, kills: st.kills, earned: Math.round(st.earned), spent: Math.round(st.spent), built: st.built, upgrades: st.upgrades, gifts: st.gifts, repair: Math.round(st.repair), crates: st.crates, best };
+  });
+  for (const o of out) o.score = o.dmg / 25 + o.kills * 3 + o.built * 4 + o.upgrades * 4 + o.gifts * 12 + o.repair / 2 + o.crates * 6;
+  return out;
+}
+function showCoopResults(won) {
+  const C = S.coop, M = C.mission, R = coopScores(), mvp = Math.abs(R[0].score - R[1].score) < 1 ? -1 : R[0].score > R[1].score ? 0 : 1;
+  let stars = 0;
+  if (M) {
+    if (won) { stars = 1; if (S.lives >= S.maxLives * .6) stars = 2; const ok3 = M.star3 ? M.star3(C, R) : C.flawless; if (ok3 && stars === 2) stars = 3; }
+    const camp = coopSaved().camp; if (stars > (camp[M.id] || 0)) { camp[M.id] = stars; saveProfile(); }
+  }
+  const rows = [['Damage dealt', 'dmg'], ['Kills', 'kills'], ['Money earned', 'earned', '$'], ['Towers built', 'built'], ['Upgrades', 'upgrades'], ['Gifts sent', 'gifts'], ['Paid for repairs', 'repair', '$']];
+  if (M && M.manualCrates) rows.push(['Crates grabbed', 'crates']);
+  const card = el('div', 'card end-card' + (won ? ' win' : ''));
+  card.appendChild(el('h1', null, won ? (M ? 'Mission complete!' : 'Victory together!') : 'HQ has fallen'));
+  card.appendChild(el('div', 'tag', `${M ? `Mission ${M.n}: ${M.name} · ` : 'Co-op · '}${S.map.def.name} · reached wave ${S.wave}`));
+  if (M) {
+    const st = el('div', 'co-stars'); st.innerHTML = [0, 1, 2].map(i => `<span class="${i < stars ? '' : 'off'}">★</span>`).join(''); card.appendChild(st);
+    card.appendChild(el('div', 'co-s3', `★ Win · ★★ HQ above 60% · ★★★ ${M.star3desc || "HQ never takes a hit"}`));
+  }
+  const mv = el('div', 'co-mvp');
+  if (mvp < 0) mv.textContent = '🤝 Dead even. Perfect teamwork!';
+  else { mv.appendChild(el('span', 'crown', '👑')); mv.appendChild(document.createTextNode('MVP: ')); const nm = el('span', null, COOP.p[mvp].name); nm.style.color = COOP.p[mvp].dark; mv.appendChild(nm); }
+  card.appendChild(mv);
+  const bd = el('div', 'co-board');
+  bd.appendChild(el('div', 'h a', COOP.p[0].name)); bd.appendChild(el('div', 'l', '')); bd.appendChild(el('div', 'h b', COOP.p[1].name));
+  for (const [label, k, pre] of rows) {
+    const a = R[0][k], b = R[1][k], mx = Math.max(1, a, b);
+    const va = el('div', 'v a' + (a > b ? ' win' : '')), vb = el('div', 'v b' + (b > a ? ' win' : ''));
+    va.appendChild(document.createTextNode(`${pre || ''}${fmt(a)}`)); const ia = el('i'); ia.style.width = Math.round(60 * a / mx) + 4 + 'px'; va.appendChild(ia);
+    const ib = el('i'); ib.style.width = Math.round(60 * b / mx) + 4 + 'px'; vb.appendChild(ib); vb.appendChild(document.createTextNode(`${pre || ''}${fmt(b)}`));
+    bd.appendChild(va); bd.appendChild(el('div', 'l', label)); bd.appendChild(vb);
+  }
+  bd.appendChild(el('div', 'v a', R[0].best ? TOWERS[R[0].best.type].name : '—')); bd.appendChild(el('div', 'l', 'Best tower')); bd.appendChild(el('div', 'v b', R[1].best ? TOWERS[R[1].best.type].name : '—'));
+  card.appendChild(bd);
+  const row = el('div', 'flex gap-3 mt-4 justify-center flex-wrap');
+  const next = M && won ? COOP_MISSIONS[COOP_MISSIONS.indexOf(M) + 1] : null;
+  if (next && coopMissionOpen(next)) row.appendChild(btn('btn-go btn-big', `Next: ${next.name}`, () => { coopResEl.hidden = true; goHome(); setTimeout(() => openCoopLobby(0, next), 350); }));
+  row.appendChild(btn((next ? 'btn-wood' : 'btn-go') + ' btn-big', won ? 'Play again' : 'Retry', () => { coopResEl.hidden = true; startRun('coop', S.mapIdx, { coop: { load: C.loadInit, mission: M && M.id } }); }));
+  if (M) row.appendChild(btn('btn-wood btn-big', 'Campaign', () => { coopResEl.hidden = true; goHome(); setTimeout(openCoopCamp, 300); }));
+  row.appendChild(btn('btn-wood btn-big', 'Base', () => { coopResEl.hidden = true; goHome(); }));
+  for (const b of row.children) b.style.width = 'auto';
+  card.appendChild(row);
+  coopResEl.innerHTML = ''; coopResEl.appendChild(card); coopResEl.hidden = false;
+  setTimeout(() => { const f = row.querySelector('button'); if (f) f.focus({ preventScroll: true }); }, 50);
+}
+const goHomeV11 = goHome; goHome = function () { coopResEl.hidden = true; closeCoopLobby(); return goHomeV11(); };
+
+// ===== the mode card opens the co-op hub: quick match or the campaign =====
 const modeIconV11 = modeIcon;
 modeIcon = function (id) {
   if (id !== 'coop') return modeIconV11(id);
   return iconCanvas(72, g => {
-    rr(g, 6, 14, 60, 44, 8); g.fillStyle = '#2366b8'; g.fill(); ol(g, 2.6);
-    g.strokeStyle = 'rgba(210,240,255,.4)'; g.lineWidth = 1; for (let x = 16; x < 66; x += 10) { g.beginPath(); g.moveTo(x, 16); g.lineTo(x, 56); g.stroke(); } for (let y = 24; y < 58; y += 10) { g.beginPath(); g.moveTo(8, y); g.lineTo(64, y); g.stroke(); }
-    g.fillStyle = 'rgba(160,220,255,.45)'; g.fillRect(8, 34, 56, 9);
-    for (const [x, col] of [[18, '#4fd8ff'], [46, '#ffb23f']]) { g.fillStyle = col; g.fillRect(x, 22, 10, 6); ol(g, 1.6); rr(g, x, 16, 10, 8, 2); g.fillStyle = '#eefaff'; g.fill(); ol(g, 1.6); }
-    g.font = `15px ${FONT}`; g.textAlign = 'center'; g.lineWidth = 4; g.strokeStyle = OUT; g.strokeText('2P', 36, 66); g.fillStyle = '#ffe14d'; g.fillText('2P', 36, 66);
+    for (const [x, col, f] of [[22, '#4fd8ff', 1], [50, '#ffb23f', -1]]) { const e = critter('normal', x, 56); e.big = 1.5; e.face = f; e.dirx = f; drawEnemy(g, e, x * .01); g.fillStyle = col; rr(g, x - 9, 60, 18, 6, 3); g.fill(); ol(g, 1.6); }
+    g.font = `18px ${FONT}`; g.textAlign = 'center'; g.lineWidth = 4; g.strokeStyle = OUT; g.strokeText('CO-OP', 36, 20); g.fillStyle = '#ffe14d'; g.fillText('CO-OP', 36, 20);
   });
 };
 const renderModesV11 = renderModes;
 renderModes = function () {
   renderModesV11();
   const card = ui.modes.querySelector('.mode-coop');
-  if (card) { const best = Math.max(0, ...Object.entries(V10().lb).filter(([k]) => k.startsWith('coop:')).map(([, L]) => (L[0] && L[0].w) || 0)); const b = card.querySelector('.mode-best'); if (b) b.textContent = best ? `Best together: wave ${best}` : 'Grab a friend and a keyboard'; }
+  if (card) {
+    const best = Math.max(0, ...Object.entries(V10().lb).filter(([k]) => k.startsWith('coop:')).map(([, L]) => (L[0] && L[0].w) || 0));
+    const fresh = card;
+    const b = fresh.querySelector('.mode-best'); if (b) b.textContent = `${best ? `Best together: wave ${best} · ` : ''}Campaign ★ ${coopStars()} of ${COOP_MISSIONS.length * 3}`;
+    fresh.addEventListener('click', ev => { ev.stopImmediatePropagation(); Sfx.unlock(); Sfx.play('click', true); ui.modesModal.hidden = true; openCoopCamp(); }, true);
+  }
 };
+// ---------- the co-op campaign: twelve hand-made missions for two, each with its own twist ----------
+// Like a party-game campaign: three chapters on a winding path, up to three stars per mission, and star gates
+// that open the next chapter. Every mission bends the rules in a way that only works if you talk to each other.
+const COOP_CHAPTERS = [
+  { name: 'Boot Camp', need: 0, col: '#6fae3a', bg: '#dff3c4' },
+  { name: 'Hot Zone', need: 6, col: '#e07a2a', bg: '#ffe2c4' },
+  { name: 'Final Push', need: 14, col: '#c8343a', bg: '#ffd0cc' },
+];
+const coopTeamwork = R => { const a = R[0].dmg, b = R[1].dmg, t = a + b; return t > 0 && Math.min(a, b) / t >= .3; };
+const COOP_MISSIONS = [
+  { id: 'c1', ch: 0, name: 'First Contact', map: 'meadow', waves: 8, desc: 'Learn the ropes together. Gentle waves, plenty of time.', first: 30, apply: r => { r.hpMul *= .8; } },
+  { id: 'c2', ch: 0, name: 'Split Shift', map: 'creek', waves: 10, desc: 'Alpha builds on the left half of the map, Bravo on the right. Cover each other.',
+    zone: (p, c) => (p === 0 ? c < COLS / 2 : c >= COLS / 2), star3: (C, R) => coopTeamwork(R), star3desc: 'Each player deals at least 30% of the damage' },
+  { id: 'c3', ch: 0, name: 'Pocket Money', map: 'ridge', waves: 10, desc: 'Barely any cash. Gift $50 as often as you like and pool it where it counts.',
+    giftAmt: 50, freeGifts: true, apply: r => { r.startGold = Math.round(r.startGold * .6); }, star3: C => C.st[0].gifts + C.st[1].gifts >= 6, star3desc: 'Send at least 6 gifts between you' },
+  { id: 'c4', ch: 0, name: 'Supply Run', map: 'dunes', waves: 10, desc: 'Crates drop all the time, but only open when a cursor runs over them. Grab them!',
+    manualCrates: true, start: () => { S.coop.crateT = 5; }, star3: C => C.st[0].crates + C.st[1].crates >= 8, star3desc: 'Grab at least 8 crates' },
+  { id: 'c5', ch: 1, name: 'Lights Out', map: 'hollow', waves: 12, desc: 'A pitch-black night in thick fog. Stick close to the road.', weather: true,
+    apply: r => { r.forceNight = true; r.ghostFrom = 4; r.ghostW = 1.4; }, start: () => { S.weather = 'fog'; } },
+  { id: 'c6', ch: 1, name: 'Swap Meet', map: 'coral', waves: 12, desc: 'Every three waves you swap tower loadouts. Plan for each other\'s kit.',
+    onWave: w => { if (w > 1 && (w - 1) % 3 === 0) { coopSwap(); return true; } return false; }, star3: (C, R) => coopTeamwork(R), star3desc: 'Each player deals at least 30% of the damage' },
+  { id: 'c7', ch: 1, name: 'Air Raid', map: 'frost', waves: 12, desc: 'Drones from the very first wave, and lots of them. Not every tower can shoot up.',
+    apply: r => { r.flyerFrom = 1; r.flyerW = 3; } },
+  { id: 'c8', ch: 1, name: 'Five Each', map: 'oasis', waves: 12, desc: 'Only five towers each. Upgrade hard and choose your spots together.', limit: 5,
+    apply: r => { r.startGold += 60; } },
+  { id: 'c9', ch: 2, name: 'Blitz', map: 'reef', waves: 15, desc: 'Barely a breather between waves, and they move fast.', first: 18, brk: 4,
+    apply: r => { r.speedMul *= 1.15; r.startGold += 60; } },
+  { id: 'c10', ch: 2, name: 'Quake Zone', map: 'magma', waves: 15, desc: 'Every wave the ground shakes and jams one tower each for a few seconds.',
+    onWave: w => { if (w >= 2) { coopQuake(); return true; } return false; } },
+  { id: 'c11', ch: 2, name: 'Last Stand', map: 'manor', waves: 15, desc: 'HQ starts with just 8 HP. Repairs cost half, so keep chipping in.',
+    repairMul: .5, apply: r => { r.lives = 8; } },
+  { id: 'c12', ch: 2, name: "Goliath's Den", map: 'caldera', waves: 15, desc: 'A Goliath every third wave. Bring your heaviest hitters.',
+    apply: r => { r.bossEvery = 3; r.hpMul *= .92; r.startGold += 80; } },
+];
+COOP_MISSIONS.forEach((m, i) => { m.n = i + 1; });
+const coopStars = () => COOP_MISSIONS.reduce((a, m) => a + (coopSaved().camp[m.id] || 0), 0);
+const coopChapterOpen = ch => coopStars() >= COOP_CHAPTERS[ch].need;
+function coopMissionOpen(m) {
+  if (!coopChapterOpen(m.ch)) return false;
+  const i = COOP_MISSIONS.indexOf(m); return i === 0 || (coopSaved().camp[COOP_MISSIONS[i - 1].id] || 0) > 0 || COOP_MISSIONS[i - 1].ch !== m.ch;
+}
+// Supply Run: crates parachute in every few seconds during a wave and wait for a cursor to grab them
+function coopCrates(dt) {
+  const C = S.coop; if (!S.drops) S.drops = [];
+  for (const d of S.drops) { d.t += dt; if (d.t > d.fall + 10) d.gone = true; }
+  if (S.drops.some(d => d.gone)) S.drops = S.drops.filter(d => !d.gone);
+  if (!S.waveActive || (C.crateT -= dt) > 0) return;
+  C.crateT = 5 + Math.random() * 4;
+  const open = []; for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) if (S.map.grid[r][c] === 0 && !S.occ.has(r * COLS + c)) open.push([c, r]);
+  if (!open.length) return;
+  const [c, r] = open[Math.random() * open.length | 0], roll = Math.random();
+  S.drops.push({ x: (c + .5) * T, y: (r + .5) * T, t: 0, fall: 1.4, kind: roll < .6 ? 'gold' : roll < .85 ? 'repair' : 'power' });
+  Sfx.play('whoosh');
+}
+// Swap Meet: the two players trade loadouts
+function coopSwap() {
+  const C = S.coop; C.load = [C.load[1], C.load[0]]; C.sel = [0, 0];
+  coopBuildPanels(); addBanner('Swap!', 'Alpha and Bravo trade tower loadouts', '#ffe08a'); coopTone('twist'); addShake(6);
+}
+// Quake Zone: one random tower each gets jammed
+function coopQuake() {
+  addShake(16); Sfx.play('boom'); addBanner('Earthquake!', 'One tower each is jammed for 6 seconds', '#ffb3a8');
+  for (const p of [0, 1]) {
+    const mine = S.towers.filter(t => t.owner === p && !(t.frozen > 0)); if (!mine.length) continue;
+    const t = mine[Math.random() * mine.length | 0]; t.frozen = 6;
+    S.rings.push({ x: t.x, y: t.y, r: 6, max: 40, life: .5, maxLife: .5, color: '220,170,110' }); burst(t.x, t.y + 6, '#a88a5a', 14, 1);
+    coopSay(p, `Quake jammed your ${TOWERS[t.type].name}!`, true);
+  }
+}
+
+// ===== the campaign map =====
+document.head.insertAdjacentHTML('beforeend', `<style>
+.cc .card{max-width:1180px;width:100%}
+.cc-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.cc-stars{font-family:var(--font-display);font-size:24px;color:var(--ink);background:#fff8ec;border:3px solid var(--ink);border-radius:999px;padding:3px 14px;box-shadow:0 3px 0 var(--ink)}
+.cc-stars b{color:#e2a91a;text-shadow:0 2px 0 var(--ink)}
+.cc-body{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;margin-top:12px}
+.cc-chs{display:flex;flex-direction:column;gap:12px}
+.cc-ch{position:relative;border:4px solid var(--ink);border-radius:22px;padding:8px 12px 10px;box-shadow:0 5px 0 rgba(43,36,24,.4)}
+.cc-ch h3{margin:0;font-family:var(--font-display);font-weight:400;font-size:20px;color:var(--ink);display:flex;justify-content:space-between;align-items:center}
+.cc-ch h3 span{font-size:14px;color:var(--text-soft)}
+.cc-path{position:relative;height:118px}
+.cc-path svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.cc-node{position:absolute;transform:translate(-50%,-50%);width:68px;height:68px;border-radius:50%;border:4px solid var(--ink);background:#fff8ec;box-shadow:0 5px 0 var(--ink);font-family:var(--font-display);font-size:26px;color:var(--ink);display:flex;align-items:center;justify-content:center;transition:transform .15s var(--pop)}
+.cc-node:hover:not(:disabled),.cc-node.sel{transform:translate(-50%,-56%) scale(1.08)}
+.cc-node.sel{background:var(--gold)}
+.cc-node.done{background:#d7ffb0}
+.cc-node.sel.done{background:var(--gold)}
+.cc-node:disabled{background:#cfc6b0;color:#8a7f68;box-shadow:0 3px 0 var(--ink)}
+.cc-node .st{position:absolute;bottom:-21px;left:50%;transform:translateX(-50%);font-size:15px;letter-spacing:1px;color:#ffd23f;text-shadow:0 2px 0 var(--ink);white-space:nowrap}
+.cc-node .st .off{color:#bdb39a}
+.cc-gate{position:absolute;inset:0;border-radius:18px;background:rgba(43,36,24,.55);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:22px;color:#fff;text-shadow:0 2px 0 #000;z-index:2}
+.cc-info{background:#fff8ec;border:4px solid var(--ink);border-radius:22px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;box-shadow:0 5px 0 rgba(43,36,24,.4)}
+.cc-info h2{margin:0;font-family:var(--font-display);font-weight:400;font-size:26px;line-height:1.05;color:var(--ink)}
+.cc-info .k{font-size:13px;font-weight:900;color:var(--text-soft)}
+.cc-info p{margin:0;font-size:15px;font-weight:800;color:var(--text);line-height:1.35}
+.cc-info .goals{font-size:13.5px;font-weight:800;color:var(--text-soft);line-height:1.6}
+.cc-info .goals b{color:#e2a91a}
+.cc-info canvas{width:100%;height:auto;border:3px solid var(--ink);border-radius:12px}
+@media (max-width:900px){.cc-body{grid-template-columns:1fr}}
+</style>`);
+const coopCampEl = el('div', 'modal cc'); coopCampEl.hidden = true; document.body.appendChild(coopCampEl);
+const CC = { sel: null, thumbs: new Map() };
+function openCoopCamp() {
+  ui.modesModal.hidden = true;
+  const firstOpen = COOP_MISSIONS.filter(coopMissionOpen).find(m => !(coopSaved().camp[m.id])) || COOP_MISSIONS.filter(coopMissionOpen).pop() || COOP_MISSIONS[0];
+  if (!CC.sel || !coopMissionOpen(CC.sel)) CC.sel = firstOpen;
+  drawCoopCamp(); coopCampEl.hidden = false;
+  setTimeout(() => { const n = coopCampEl.querySelector('.cc-node.sel'); if (n) n.focus({ preventScroll: true }); }, 30);
+}
+function drawCoopCamp() {
+  const camp = coopSaved().camp, tot = coopStars();
+  coopCampEl.innerHTML = '';
+  const card = el('div', 'card'), top = el('div', 'cc-top'), tl = el('div');
+  tl.appendChild(el('h1', null, 'Co-op Campaign'));
+  tl.appendChild(el('div', 'tag', 'Twelve missions for two commanders. Each one bends the rules, so talk it through. Earn stars to open the next chapter.'));
+  top.appendChild(tl);
+  const right = el('div', 'flex items-center gap-2 flex-wrap');
+  const st = el('span', 'cc-stars'); st.appendChild(el('b', null, '★ ')); st.appendChild(document.createTextNode(`${tot} / ${COOP_MISSIONS.length * 3}`)); right.appendChild(st);
+  right.appendChild(btn('btn-gold btn-sm', 'Quick match', () => { coopCampEl.hidden = true; openPicker('coop'); ui.picker.hidden = false; }));
+  right.appendChild(btn('btn-wood btn-sm', 'Back', () => { coopCampEl.hidden = true; }));
+  top.appendChild(right); card.appendChild(top);
+  const body = el('div', 'cc-body'), chs = el('div', 'cc-chs');
+  COOP_CHAPTERS.forEach((ch, ci) => {
+    const box = el('div', 'cc-ch'); box.style.background = ch.bg;
+    const h = el('h3'); h.appendChild(document.createTextNode(`Chapter ${ci + 1}: ${ch.name}`));
+    const ms = COOP_MISSIONS.filter(m => m.ch === ci), got = ms.reduce((a, m) => a + (camp[m.id] || 0), 0);
+    h.appendChild(el('span', null, `★ ${got} / ${ms.length * 3}`)); box.appendChild(h);
+    const path = el('div', 'cc-path'), xs = ms.map((m, i) => 12 + i * (76 / Math.max(1, ms.length - 1))), ys = ms.map((m, i) => i % 2 ? 66 : 38);
+    // a winding dotted trail between the stops
+    let d = `M ${xs[0]} ${ys[0]}`; for (let i = 1; i < xs.length; i++) { const mx = (xs[i - 1] + xs[i]) / 2; d += ` C ${mx} ${ys[i - 1]} ${mx} ${ys[i]} ${xs[i]} ${ys[i]}`; }
+    path.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="${d}" fill="none" stroke="${ch.col}" stroke-width="5" stroke-linecap="round" vector-effect="non-scaling-stroke" opacity=".35"/><path d="${d}" fill="none" stroke="#2b2418" stroke-width="3" stroke-dasharray="2 9" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
+    ms.forEach((m, i) => {
+      const open = coopMissionOpen(m), s = camp[m.id] || 0, b = el('button', 'cc-node' + (s ? ' done' : '') + (CC.sel === m ? ' sel' : ''));
+      b.style.left = xs[i] + '%'; b.style.top = ys[i] + '%'; b.disabled = !open; b.setAttribute('aria-label', `Mission ${m.n}: ${m.name}${open ? '' : ' (locked)'}`);
+      b.appendChild(document.createTextNode(open ? String(m.n) : '🔒'));
+      const stars = el('span', 'st'); stars.innerHTML = [0, 1, 2].map(k => `<span class="${k < s ? '' : 'off'}">★</span>`).join(''); b.appendChild(stars);
+      b.addEventListener('click', () => { if (CC.sel === m) { coopCampEl.hidden = true; openCoopLobby(0, m); return; } CC.sel = m; Sfx.play('click', true); drawCoopCamp(); const n = coopCampEl.querySelector('.cc-node.sel'); if (n) n.focus({ preventScroll: true }); });
+      b.addEventListener('focus', () => { if (CC.sel !== m && (Input.mode === 'pad' || Input.mode === 'remote' || Input.mode === 'keys')) { CC.sel = m; coopCampInfo(); coopCampEl.querySelectorAll('.cc-node').forEach(x => x.classList.toggle('sel', x === b)); } });
+      path.appendChild(b);
+    });
+    box.appendChild(path);
+    if (!coopChapterOpen(ci)) box.appendChild(el('div', 'cc-gate', `🔒 ${ch.need} ★ to open`));
+    chs.appendChild(box);
+  });
+  body.appendChild(chs);
+  const info = el('div', 'cc-info'); info.id = 'ccInfo'; body.appendChild(info);
+  card.appendChild(body); coopCampEl.appendChild(card);
+  coopCampInfo();
+}
+function coopCampInfo() {
+  const info = coopCampEl.querySelector('#ccInfo'), m = CC.sel; if (!info || !m) return;
+  const def = MAPS.find(x => x.id === m.map) || MAPS[0], s = coopSaved().camp[m.id] || 0;
+  info.innerHTML = '';
+  info.appendChild(el('span', 'k', `MISSION ${m.n} · CHAPTER ${m.ch + 1}`));
+  info.appendChild(el('h2', null, m.name));
+  let th = CC.thumbs.get(def.id); if (!th) { th = renderBackground(buildMap(def), .34); CC.thumbs.set(def.id, th); }
+  const c = el('canvas'); c.width = th.width; c.height = th.height; c.getContext('2d').drawImage(th, 0, 0); info.appendChild(c);
+  info.appendChild(el('span', 'k', `${def.name} · ${m.waves} waves`));
+  info.appendChild(el('p', null, m.desc));
+  const g = el('div', 'goals'); g.innerHTML = `<b>★</b> Win<br><b>★★</b> Finish with HQ above 60%<br><b>★★★</b> ${esc(m.star3desc || 'HQ never takes a hit')}`; info.appendChild(g);
+  info.appendChild(el('span', 'k', s ? `Best: ${'★'.repeat(s)}${'☆'.repeat(3 - s)}` : 'Not cleared yet'));
+  const go = btn('btn-go btn-big', 'Choose towers', () => { coopCampEl.hidden = true; openCoopLobby(0, m); }); go.disabled = !coopMissionOpen(m); info.appendChild(go);
+}
+coopCampEl.addEventListener('click', ev => { if (ev.target === coopCampEl) coopCampEl.hidden = true; });
+window.addEventListener('keydown', ev => { if (!coopCampEl.hidden && (ev.key === 'Escape' || remoteKey(ev) === 'back')) { coopCampEl.hidden = true; ev.stopImmediatePropagation(); } }, true);
 // ---------- event themes: during a seasonal event the whole interface dresses up ----------
 // Every card, panel, button and pill reads its colours from the palette tokens, so swapping the tokens re-skins the
 // whole UI at once. On top of that each event hangs its own garland and puts its mascots in the corners. Nothing here
@@ -10921,6 +11681,7 @@ body.ev-summer .panel,body.ev-summer .card,body.ev-summer .tabbody,body.ev-summe
 .evd-mascot{bottom:0;width:86px;height:96px;z-index:0}
 .home .evd-mascot{z-index:1}
 .evd-mascot.l{left:10px} .evd-mascot.r{right:10px}
+.home .evd-mascot.l{left:390px}
 #play .evd-mascot.l{left:31%} #play .evd-mascot.r{right:340px}
 .evd .sway,.evd .paw,.evd .tw,.evd .flap,.evd .bob{transform-box:fill-box}
 .evd .sway{transform-origin:50% 0}
@@ -11047,6 +11808,293 @@ function evApply() {
 evApply();
 setInterval(evApply, 1000); // picks up a change in Settings, or the calendar ticking into an event
 addEventListener('resize', () => { if (EV.k && Math.ceil(innerWidth / 120) + 1 > EV.n) evBuild(); });
+// ---------- more events: Valentine's, Easter, Canada Day and your birthday, plus event maps and event tower skins ----------
+Object.assign(SEASONS, {
+  valentine: { name: "Valentine's Day", icon: '💘', from: [2, 9], to: [2, 15], map: 'meadow', decor: 'hearts', finish: 'sweetheart', mods: [{ name: 'Sweethearts', desc: 'Kills pay 20% more, and every bonus sparkles pink' }], apply: r => { r.goldMul *= 1.2; r.fireworks = true; } },
+  easter: { name: 'Easter', icon: '🐣', map: 'meadow', decor: 'eggbasket', finish: 'pastel', mods: [{ name: 'Egg Hunt', desc: 'Supply trucks full of eggs roll by far more often' }], apply: r => { r.goldenRate = .75; } },
+  canada: { name: 'Canada Day', icon: '🍁', from: [6, 28], to: [7, 3], map: 'meadow', decor: 'mapleflag', finish: 'maple', mods: [{ name: 'True North', desc: '+$100 to start and wave bonuses +25%' }], apply: r => { r.startGold += 100; r.bonusMul *= 1.25; } },
+  birthday: { name: 'Your Birthday', icon: '🎂', map: 'meadow', decor: 'cake', finish: 'party', mods: [{ name: 'Party Time', desc: '+$150 to start, wave bonuses +50%, fireworks on every kill' }], apply: r => { r.startGold += 150; r.bonusMul *= 1.5; r.fireworks = true; } },
+});
+Object.assign(SEASONS.halloween, { finish: 'pumpkin' }); Object.assign(SEASONS.winter, { finish: 'festive' });
+Object.assign(SEASONS.summer, { finish: 'beach' }); Object.assign(SEASONS.lny, { finish: 'lantern' });
+// Easter moves every year (the anonymous Gregorian method)
+function easterDay(Y) {
+  const a = Y % 19, b = Math.floor(Y / 100), c = Y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mo = Math.floor((h + l - 7 * m + 114) / 31), dy = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Y, mo - 1, dy);
+}
+const SEASON_ORDER = ['birthday', 'valentine', 'easter', 'canada', 'halloween', 'winter', 'lny', 'summer'];
+const bdayOk = s => /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(s || '');
+season = function () {
+  const s = profile.settings.season;
+  if (s === 'off') return null;
+  if (SEASONS[s]) return s;
+  const d = new Date(), md = (d.getMonth() + 1) * 100 + d.getDate(), day = 864e5, today = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  for (const k of SEASON_ORDER) {
+    if (k === 'birthday') { const b = profile.settings.bday; if (bdayOk(b)) { const bd = new Date(d.getFullYear(), +b.slice(0, 2) - 1, +b.slice(3)); if (Math.abs(today - bd) <= day) return k; } continue; }
+    if (k === 'easter') { const e = easterDay(d.getFullYear()); if (today >= new Date(e - 7 * day) && today <= new Date(+e + day)) return k; continue; }
+    const S0 = SEASONS[k], a = S0.from[0] * 100 + S0.from[1], b = S0.to[0] * 100 + S0.to[1];
+    if (a <= b ? md >= a && md <= b : md >= a || md <= b) return k;
+  }
+  return null;
+};
+if (!bdayOk(profile.settings.bday)) profile.settings.bday = '';
+
+// ===== decorations for your base =====
+DECOR_ITEMS.push(
+  { id: 'hearts', name: 'Heart Balloons', from: 'season:valentine', how: "Win the Valentine's Day Seasonal Op" },
+  { id: 'eggbasket', name: 'Egg Basket', from: 'season:easter', how: 'Win the Easter Seasonal Op' },
+  { id: 'mapleflag', name: 'Maple Flag', from: 'season:canada', how: 'Win the Canada Day Seasonal Op' },
+  { id: 'cake', name: 'Birthday Cake', from: 'season:birthday', how: 'Win the Seasonal Op on your birthday' },
+);
+function drawHeart(g, x, y, s, col) {
+  g.save(); g.translate(x, y); g.scale(s, s); g.beginPath(); g.moveTo(0, 4); g.bezierCurveTo(-7, -1, -5, -8, 0, -4); g.bezierCurveTo(5, -8, 7, -1, 0, 4); g.closePath();
+  g.fillStyle = col; g.fill(); ol(g, 1.3 / s); g.fillStyle = 'rgba(255,255,255,.6)'; ellipse(g, -2.6, -3.6, 1.4, 1); g.fill(); g.restore();
+}
+function drawEgg(g, x, y, s, col, band) {
+  g.save(); g.translate(x, y); g.scale(s, s); g.beginPath(); g.ellipse(0, 0, 4, 5.4, 0, 0, TAU); g.fillStyle = col; g.fill();
+  g.save(); g.clip(); g.fillStyle = band; g.fillRect(-5, -1, 10, 2.2); g.fillStyle = 'rgba(255,255,255,.7)'; for (const [dx, dy] of [[-2, -3], [2, 2.6]]) { g.beginPath(); g.arc(dx, dy, .9, 0, TAU); g.fill(); } g.restore();
+  g.beginPath(); g.ellipse(0, 0, 4, 5.4, 0, 0, TAU); ol(g, 1.2 / s); g.restore();
+}
+function drawMaple(g, x, y, s, col) {
+  g.save(); g.translate(x, y); g.scale(s, s); g.beginPath();
+  const P = [[0, -7], [1.6, -3.6], [4, -4.6], [3.2, -1.2], [6.4, -1.8], [4.6, 1.4], [5.6, 2.2], [1.2, 2.6], [1.4, 5.6], [0, 4.4], [-1.4, 5.6], [-1.2, 2.6], [-5.6, 2.2], [-4.6, 1.4], [-6.4, -1.8], [-3.2, -1.2], [-4, -4.6], [-1.6, -3.6]];
+  P.forEach(([a, b], i) => (i ? g.lineTo(a, b) : g.moveTo(a, b))); g.closePath(); g.fillStyle = col; g.fill(); ol(g, 1 / s);
+  g.strokeStyle = col; g.lineWidth = 1.2 / s; g.beginPath(); g.moveTo(0, 4.4); g.lineTo(0, 8); g.stroke(); g.restore();
+}
+function drawBalloon(g, x, y, s, col, t = 0) {
+  const bob = Math.sin(t * 2 + x) * 1.2;
+  g.strokeStyle = 'rgba(43,36,24,.7)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, y + 12 * s + bob); g.quadraticCurveTo(x + 3, y + 18 * s, x, y + 24 * s); g.stroke();
+  g.beginPath(); g.ellipse(x, y + bob, 5.5 * s, 7 * s, 0, 0, TAU); g.fillStyle = col; g.fill(); ol(g, 1.3);
+  g.fillStyle = 'rgba(255,255,255,.55)'; g.beginPath(); g.ellipse(x - 2 * s, y - 2.5 * s + bob, 1.5 * s, 2.3 * s, -.4, 0, TAU); g.fill();
+  poly(g, [[x - 1.5, y + 7 * s + bob], [x + 1.5, y + 7 * s + bob], [x, y + 9 * s + bob]]); g.fillStyle = col; g.fill();
+}
+const drawDecorItemEv = drawDecorItem;
+drawDecorItem = function (g, id, t = 0) {
+  switch (id) {
+    case 'hearts': for (const [dx, col] of [[-8, '#ff5a8a'], [0, '#ff9ac0'], [8, '#e5302a']]) { g.strokeStyle = OUT; g.lineWidth = 1; g.beginPath(); g.moveTo(dx * .4, 0); g.lineTo(dx, -22); g.stroke(); drawHeart(g, dx, -26 + Math.sin(t * 2 + dx) * 1.2, 1.4, col); } return;
+    case 'eggbasket': g.fillStyle = 'rgba(43,36,24,.2)'; ellipse(g, 2, 2, 16, 5); g.fill(); drawEgg(g, -6, -9, 1.1, '#ffb0d0', '#9ad8ff'); drawEgg(g, 5, -10, 1.1, '#c9ff9a', '#ffd23f'); drawEgg(g, 0, -12, 1.1, '#d0b8ff', '#ff8ab0');
+      rr(g, -12, -8, 24, 9, 3); g.fillStyle = '#c8924a'; g.fill(); ol(g, 1.6); g.strokeStyle = '#8a5a22'; g.lineWidth = 1.2; for (let x = -9; x < 12; x += 4) { g.beginPath(); g.moveTo(x, -7); g.lineTo(x, 0); g.stroke(); } g.strokeStyle = OUT; g.lineWidth = 2.6; g.beginPath(); g.arc(0, -8, 11, Math.PI, 0); g.stroke(); return;
+    case 'mapleflag': g.strokeStyle = OUT; g.lineWidth = 3; g.beginPath(); g.moveTo(-10, 2); g.lineTo(-10, -34); g.stroke(); g.strokeStyle = '#c9ced4'; g.lineWidth = 1.4; g.stroke();
+      { const w = Math.sin(t * 3) * 1.5; rr(g, -9, -34, 26, 15, 1.5); g.fillStyle = '#fff'; g.fill(); ol(g, 1.5); g.fillStyle = '#e5302a'; g.fillRect(-9, -34, 6, 15); g.fillRect(11, -34, 6, 15); drawMaple(g, 4, -26.5 + w * .2, .85, '#e5302a'); } return;
+    case 'cake': g.fillStyle = 'rgba(43,36,24,.2)'; ellipse(g, 2, 2, 16, 5); g.fill(); rr(g, -13, -12, 26, 13, 4); g.fillStyle = '#ffe2b0'; g.fill(); ol(g, 1.6); rr(g, -10, -22, 20, 11, 4); g.fillStyle = '#ff9ac0'; g.fill(); ol(g, 1.6);
+      g.fillStyle = '#fff'; for (let x = -11; x < 12; x += 5) { circle(g, x, -12, 2.2); g.fill(); }
+      for (const [x, col] of [[-5, '#4fc8ff'], [0, '#ffd23f'], [5, '#7ed957']]) { g.fillStyle = col; g.fillRect(x - 1, -29, 2, 7); ol(g, .8); const f = .7 + .3 * Math.sin(t * 9 + x); g.fillStyle = `rgba(255,${180 + 50 * f},60,1)`; g.beginPath(); g.ellipse(x, -31, 1.4, 2.4 * f, 0, 0, TAU); g.fill(); } return;
+  }
+  drawDecorItemEv(g, id, t);
+};
+
+// ===== event tower skins: win the event's Seasonal Op to earn them =====
+FINISHES.push(
+  { id: 'pumpkin', event: 'halloween', name: 'Pumpkin Patch', desc: 'Jack-o\'-lantern orange with a spooky glow.', pad: '#ff8a2a', sil: '#5a2a0a', tint: 'rgba(255,120,30,.22)', trim: '#3a1f4a', glow: '255,140,40' },
+  { id: 'festive', event: 'winter', name: 'Festive', desc: 'Holly green with candy-red stripes and gold trim.', pad: '#2f8a4a', sil: '#123a20', tint: 'rgba(40,140,70,.18)', stripes: '#e5302a', trim: '#ffd23f', sparkle: true },
+  { id: 'lantern', event: 'lny', name: 'Red Lantern', desc: 'Lucky red lacquer with gold edges and a warm glow.', pad: '#d8262a', sil: '#5a0a0a', tint: 'rgba(220,30,30,.22)', trim: '#ffd23f', trim2: '#ffd23f', glow: '255,90,60' },
+  { id: 'beach', event: 'summer', name: 'Beach Day', desc: 'Lifeguard teal with white stripes.', pad: '#3fc8d8', sil: '#0c5a6a', tint: 'rgba(60,200,220,.18)', stripes: '#ffffff', trim: '#ff7046' },
+  { id: 'sweetheart', event: 'valentine', name: 'Sweetheart', desc: 'Bubblegum pink with a lovely sparkle.', pad: '#ff8ac0', sil: '#8a2a5a', tint: 'rgba(255,120,190,.22)', trim: '#ffffff', sparkle: true, glow: '255,120,190' },
+  { id: 'pastel', event: 'easter', name: 'Painted Egg', desc: 'Soft pastels with speckles, like a painted egg.', pad: '#c8e8a0', sil: '#5a7a3a', tint: 'rgba(200,180,255,.2)', stars: true, trim: '#ffd0f0' },
+  { id: 'maple', event: 'canada', name: 'Maple Leaf', desc: 'Bold red and white, true north strong.', pad: '#e5302a', sil: '#6a0a0a', tint: 'rgba(230,40,40,.2)', stripes: '#ffffff', trim: '#ffffff' },
+  { id: 'party', event: 'birthday', name: 'Party Time', desc: 'Gold with confetti and a sparkle on top.', pad: '#ffd23f', sil: '#8a5a10', tint: 'rgba(255,200,60,.15)', stars: true, sparkle: true, trim: '#ff5aa0', trim2: '#4fc8ff' },
+);
+const victoryEv = victory;
+victory = function () {
+  const k = S && S.rules.mode === 'seasonal' ? season() : null;
+  victoryEv();
+  const fid = k && SEASONS[k].finish, F = V10().finish;
+  if (fid && !F.owned[fid]) { F.owned[fid] = true; saveProfile(); const f = FINISHES.find(x => x.id === fid); setTimeout(() => showToast(`Event skin unlocked: ${f.name}!`, 'Equip it in the Base shop under Tower finishes'), 1600); }
+};
+
+// ===== the battlefield dresses up: garlands between the lamps, plus snow, bats, hearts, leaves or confetti =====
+const EVMAP = { key: '', cv: null };
+function garlandItem(g, k, x, y, i, t) {
+  switch (k) {
+    case 'winter': { const col = ['#ff4a4a', '#ffd23f', '#4ad46a', '#4ab8ff', '#ff7ad0'][i % 5]; g.fillStyle = '#2a4a3a'; g.fillRect(x - 1.2, y - 1, 2.4, 2.4); g.beginPath(); g.ellipse(x, y + 3.4, 2, 3, 0, 0, TAU); g.fillStyle = col; g.fill(); ol(g, .9); break; }
+    case 'lny': drawRedLantern(g, x, y - 1, .45, 0); break;
+    case 'halloween': { g.beginPath(); g.ellipse(x, y + 3, 2.6, 3.2, 0, 0, TAU); g.fillStyle = i % 2 ? '#ff8a2a' : '#9a5ae0'; g.fill(); ol(g, .9); break; }
+    case 'summer': case 'canada': case 'birthday': {
+      const cols = k === 'canada' ? ['#e5302a', '#ffffff'] : k === 'birthday' ? ['#ff5aa0', '#ffd23f', '#4fc8ff', '#7ed957', '#b48aff'] : ['#ff7046', '#ffd23f', '#17a2b4', '#ff9ad0'];
+      poly(g, [[x - 4, y - 1], [x + 4, y - 1], [x, y + 8]]); g.fillStyle = cols[i % cols.length]; g.fill(); ol(g, .9);
+      if (k === 'canada' && i % 2 === 0) drawMaple(g, x, y + 2.4, .32, '#e5302a');
+      break;
+    }
+    case 'valentine': drawHeart(g, x, y + 3, .7, i % 2 ? '#ff5a8a' : '#ff9ac0'); break;
+    case 'easter': drawEgg(g, x, y + 3.5, .55, ['#ffb0d0', '#c9ff9a', '#d0b8ff', '#9ad8ff', '#ffe08a'][i % 5], '#ffffff'); break;
+  }
+}
+function eventMapLayer(k) {
+  const bk = Math.min(2, Math.max(1, DPR)), key = `${S.map.def.id}|${k}|${bk}|${S.map.alt ? 1 : 0}`;
+  if (EVMAP.key === key) return EVMAP.cv;
+  const c = EVMAP.cv || mkCv(4, 4); c.width = Math.ceil(W * bk); c.height = Math.ceil(H * bk);
+  const g = c.getContext('2d'); g.setTransform(bk, 0, 0, bk, 0, 0); g.clearRect(0, 0, W, H); g.lineJoin = 'round'; g.lineCap = 'round';
+  const L = mapLamps(S.map);
+  // lamps run along the road on alternating sides, so each one strings to the next across the road
+  for (let a = 0; a + 1 < L.length; a++) {
+    const b = a + 1, p = L[a], q = L[b], d = Math.hypot(q.x - p.x, q.y - p.y);
+    if (d > 5.6 * T || d < T) continue;
+    const x0 = p.x, y0 = p.y - 30, x1 = q.x, y1 = q.y - 30, sag = 10 + d * .06, n = Math.max(3, Math.round(d / 18));
+    const at = s => { const u = 1 - s; return [u * u * x0 + 2 * u * s * (x0 + x1) / 2 + s * s * x1, u * u * y0 + 2 * u * s * ((y0 + y1) / 2 + sag * 2) + s * s * y1]; };
+    g.strokeStyle = 'rgba(43,36,24,.75)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo((x0 + x1) / 2, (y0 + y1) / 2 + sag * 2, x1, y1); g.stroke();
+    for (let i = 1; i < n; i++) { const [x, y] = at(i / n); garlandItem(g, k, x, y, i + a, 0); }
+  }
+  EVMAP.key = key; EVMAP.cv = c; return c;
+}
+const drawSeasonEv = drawSeason;
+drawSeason = function (g) {
+  drawSeasonEv(g);
+  const k = season(); if (!k || !S || !S.map || (S.mode === 'demo' && view === 'home')) return;
+  // props scattered around the map for the newer events
+  if (k === 'valentine' || k === 'easter' || k === 'canada' || k === 'birthday') {
+    for (const [i, p] of seasonProps(S.map).entries()) {
+      if (k === 'valentine') drawHeart(g, p.x, p.y - 10 + Math.sin(S.anim * 2 + i) * 1.5, 1.2, i % 2 ? '#ff5a8a' : '#ff9ac0');
+      else if (k === 'easter') drawEgg(g, p.x, p.y - 5, 1, ['#ffb0d0', '#c9ff9a', '#d0b8ff', '#9ad8ff', '#ffe08a'][i % 5], ['#9ad8ff', '#ffd23f', '#ff8ab0'][i % 3]);
+      else if (k === 'canada') { g.strokeStyle = OUT; g.lineWidth = 1.6; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x, p.y - 20); g.stroke(); rr(g, p.x, p.y - 20, 13, 8, 1); g.fillStyle = '#fff'; g.fill(); ol(g, 1); g.fillStyle = '#e5302a'; g.fillRect(p.x, p.y - 20, 3, 8); g.fillRect(p.x + 10, p.y - 20, 3, 8); drawMaple(g, p.x + 6.5, p.y - 16.2, .38, '#e5302a'); }
+      else drawBalloon(g, p.x, p.y - 26, .9, ['#ff5aa0', '#ffd23f', '#4fc8ff', '#7ed957', '#b48aff'][i % 5], S.anim);
+    }
+  }
+  if (!GFX.low) g.drawImage(eventMapLayer(k), 0, 0, W, H);
+};
+// little particles drifting over the whole battlefield
+const drawAmbientEv = drawAmbient;
+drawAmbient = function (g) {
+  drawAmbientEv(g);
+  const k = season(); if (!k || !S || !S.map || GFX.low || REDUCED || (S.mode === 'demo' && view === 'home')) return;
+  const t = S.anim;
+  if (k === 'winter' && !['snow', 'blizzard'].includes(S.weather)) for (let i = 0; i < 46; i++) { const sp = 18 + (i * 7) % 20, x = ((i * 97.3 + Math.sin(t * .8 + i) * 18) % (W + 40) + W + 40) % (W + 40) - 20, y = ((t * sp + i * 61.7) % (H + 40)) - 20; dot(g, x, y, 1.4 + (i % 3) * .6, 'rgba(255,255,255,.85)'); }
+  else if (k === 'birthday') for (let i = 0; i < 40; i++) { const x = ((i * 89.1 + Math.sin(t + i) * 22) % W + W) % W, y = ((t * (26 + i % 11) + i * 53) % (H + 30)) - 15; g.fillStyle = ['#ff5aa0', '#ffd23f', '#4fc8ff', '#7ed957', '#b48aff'][i % 5]; g.save(); g.translate(x, y); g.rotate(t * 3 + i); g.fillRect(-2.5, -1.2, 5, 2.4); g.restore(); }
+  else if (k === 'canada') for (let i = 0; i < 10; i++) { const x = ((i * 131.7 + t * 14 + Math.sin(t * .9 + i) * 30) % (W + 40) + W + 40) % (W + 40) - 20, y = ((t * (16 + i % 5 * 3) + i * 77) % (H + 40)) - 20; g.save(); g.translate(x, y); g.rotate(Math.sin(t * 1.5 + i) * .9); drawMaple(g, 0, 0, .9, i % 3 ? '#e5302a' : '#ff8a2a'); g.restore(); }
+  else if (k === 'valentine') for (let i = 0; i < 8; i++) { const x = (i * 127 + Math.sin(t + i) * 20) % W, y = H + 10 - ((t * (14 + i % 4 * 3) + i * 90) % (H + 40)); g.globalAlpha = .75; drawHeart(g, x, y, .9, i % 2 ? '#ff5a8a' : '#ff9ac0'); g.globalAlpha = 1; }
+  else if (k === 'halloween') for (let i = 0; i < 4; i++) { const x = ((t * (40 + i * 9) + i * 260) % (W + 80)) - 40, y = 60 + i * 90 + Math.sin(t * 2 + i) * 20, f = Math.sin(t * 14 + i * 3); g.save(); g.translate(x, y); g.scale(1, .6 + .4 * Math.abs(f)); g.fillStyle = '#241830'; g.beginPath(); g.moveTo(0, 2); g.quadraticCurveTo(-6, -6 * f, -12, -1); g.quadraticCurveTo(-7, 0, -5, 3); g.quadraticCurveTo(-2, 1, 0, 4); g.quadraticCurveTo(2, 1, 5, 3); g.quadraticCurveTo(7, 0, 12, -1); g.quadraticCurveTo(6, -6 * f, 0, 2); g.fill(); g.restore(); }
+};
+// hats for the newer events
+const drawSeasonHatEv = drawSeasonHat;
+drawSeasonHat = function (g, x, y, k) {
+  const s = season();
+  if (s === 'valentine') { rr(g, x - 6 * k, y - 1 * k, 12 * k, 2.6 * k, 1); g.fillStyle = '#ff5a8a'; g.fill(); drawHeart(g, x, y - 4 * k, .55 * k, '#e5302a'); return; }
+  if (s === 'easter') { for (const d of [-1, 1]) { g.beginPath(); g.ellipse(x + d * 3 * k, y - 7 * k, 1.8 * k, 5 * k, d * .2, 0, TAU); g.fillStyle = '#ffffff'; g.fill(); ol(g, 1.1); g.beginPath(); g.ellipse(x + d * 3 * k, y - 7 * k, .8 * k, 3.4 * k, d * .2, 0, TAU); g.fillStyle = '#ffb0d0'; g.fill(); } return; }
+  if (s === 'canada') { g.beginPath(); g.arc(x, y, 6 * k, Math.PI, 0); g.fillStyle = '#e5302a'; g.fill(); ol(g, 1.2); rr(g, x - 6.5 * k, y - 1 * k, 13 * k, 3 * k, 1); g.fillStyle = '#fff'; g.fill(); ol(g, 1); circle(g, x, y - 6.5 * k, 2 * k); g.fillStyle = '#fff'; g.fill(); ol(g, 1); return; }
+  if (s === 'birthday') { poly(g, [[x - 5 * k, y], [x + 5 * k, y], [x, y - 12 * k]]); g.fillStyle = '#4fc8ff'; g.fill(); ol(g, 1.2); g.strokeStyle = '#ffd23f'; g.lineWidth = 1.4 * k; g.beginPath(); g.moveTo(x - 3 * k, y - 4 * k); g.lineTo(x + 3 * k, y - 4 * k); g.moveTo(x - 1.5 * k, y - 8 * k); g.lineTo(x + 1.5 * k, y - 8 * k); g.stroke(); circle(g, x, y - 12 * k, 1.8 * k); g.fillStyle = '#ff5aa0'; g.fill(); return; }
+  drawSeasonHatEv(g, x, y, k);
+};
+
+// ===== the interface themes for the new events =====
+document.head.insertAdjacentHTML('beforeend', `<style>
+body.ev-valentine{--ink:#3a1424;--ink-2:#5a2238;--paper:#fff2f6;--paper-2:#ffe0ea;--paper-3:#ffc8da;--paper-4:#ffa8c4;--text:#4a1a2c;--text-soft:#8e4a64;--text-dim:#b67a90;
+  --olive:#e0447a;--olive-d:#a0204e;--olive-l:#ff7aa8;--wood:#c8507a;--wood-d:#8a2a4e;--green:#e0447a;--green-d:#9a1a46;--theme-glow:#6a1a3a;
+  background:#e86a96 repeating-conic-gradient(#ee76a0 0 25%,#e86a96 0 50%) 0 0/56px 56px}
+body.ev-easter{--ink:#2e2a40;--paper:#fbfff2;--paper-2:#eef8dc;--paper-3:#dcefc0;--paper-4:#c4e2a0;--text:#3a3550;--text-soft:#6e6a8a;--text-dim:#9a96b2;
+  --olive:#8a6ae0;--olive-d:#5a3fb0;--olive-l:#b49aff;--wood:#ffb0d0;--wood-d:#c8607e;--green:#6cc04a;--green-d:#3f8a2a;--theme-glow:#5a4a8a;
+  background:#b8e4a0 repeating-conic-gradient(#c2eaaa 0 25%,#b8e4a0 0 50%) 0 0/56px 56px}
+body.ev-canada{--ink:#2a1210;--paper:#ffffff;--paper-2:#fbecea;--paper-3:#f4d2ce;--paper-4:#e8b0aa;--text:#3a1a18;--text-soft:#8a4a44;
+  --olive:#d8262a;--olive-d:#8a1014;--olive-l:#ff5a4a;--wood:#d8262a;--wood-d:#8a1014;--green:#d8262a;--green-d:#8a1014;--theme-glow:#6a1a14;
+  background:#d8262a repeating-conic-gradient(#e0343a 0 25%,#d8262a 0 50%) 0 0/56px 56px}
+body.ev-birthday{--paper:#fffaf0;--paper-2:#fff0d0;--paper-3:#ffe0a8;--paper-4:#ffc878;
+  --olive:#b04ae0;--olive-d:#7a20a8;--olive-l:#d08aff;--wood:#ff5aa0;--wood-d:#b0306a;--green:#ff5aa0;--green-d:#a8306a;--theme-glow:#5a2a8a;
+  background:#7a5ae0 repeating-conic-gradient(#8466e8 0 25%,#7a5ae0 0 50%) 0 0/56px 56px}
+${['valentine', 'easter', 'canada', 'birthday'].map(k => `body.ev-${k} .panel,body.ev-${k} .card,body.ev-${k} .tabbody,body.ev-${k} .side,body.ev-${k} .load-card`).join(',')}{box-shadow:inset 0 0 0 3px var(--olive-l),0 8px 0 rgba(43,36,24,.4)}
+</style>`);
+const evStr = (col, sag = 16) => `<path d="M-1 3 Q60 ${3 + sag} 121 3" stroke="${col}" stroke-width="2.4" fill="none" stroke-linecap="round"/>`;
+const evY = (x, sag = 16) => 3 + sag * 4 * (x / 120) * (1 - x / 120);
+const svgHeart = (x, y, s, col) => `<path d="M${x} ${y + 4 * s} C${x - 7 * s} ${y - s} ${x - 5 * s} ${y - 8 * s} ${x} ${y - 4 * s} C${x + 5 * s} ${y - 8 * s} ${x + 7 * s} ${y - s} ${x} ${y + 4 * s}Z" fill="${col}" stroke="#3a1424" stroke-width="1.6"/>`;
+const svgEgg = (x, y, s, col, band) => `<ellipse cx="${x}" cy="${y}" rx="${4 * s}" ry="${5.4 * s}" fill="${col}" stroke="#2e2a40" stroke-width="1.5"/><rect x="${x - 4 * s}" y="${y - .8 * s}" width="${8 * s}" height="${2 * s}" fill="${band}"/>`;
+const svgMaple = (x, y, s, col) => `<path transform="translate(${x} ${y}) scale(${s})" d="M0-7 1.6-3.6 4-4.6 3.2-1.2 6.4-1.8 4.6 1.4 5.6 2.2 1.2 2.6 1.4 5.6 0 4.4-1.4 5.6-1.2 2.6-5.6 2.2-4.6 1.4-6.4-1.8-3.2-1.2-4-4.6-1.6-3.6Z" fill="${col}" stroke="#2a1210" stroke-width="${1 / s}"/>`;
+Object.assign(EV_GARLAND, {
+  valentine: i => `<svg viewBox="0 0 120 54">${evStr('#a0204e', 12)}${[20, 60, 100].map((x, k) => `<g class="sway"><path d="M${x} ${evY(x, 12)} V${evY(x, 12) + 6 + (k % 2) * 8}" stroke="#a0204e" stroke-width="1.4"/>${svgHeart(x, evY(x, 12) + 14 + (k % 2) * 8, 1.6, (i + k) % 2 ? '#ff5a8a' : '#ff9ac0')}</g>`).join('')}</svg>`,
+  easter: i => `<svg viewBox="0 0 120 54">${evStr('#5a3fb0', 14)}${[15, 45, 75, 105].map((x, k) => `<g class="sway"><path d="M${x} ${evY(x, 14)} v4" stroke="#5a3fb0" stroke-width="1.4"/>${svgEgg(x, evY(x, 14) + 12, 1.5, ['#ffb0d0', '#c9ff9a', '#d0b8ff', '#9ad8ff', '#ffe08a'][(i * 4 + k) % 5], ['#9ad8ff', '#ffd23f', '#ff8ab0'][(i + k) % 3])}</g>`).join('')}</svg>`,
+  canada: i => `<svg viewBox="0 0 120 54">${evStr('#2a1210', 16)}${[0, 1, 2, 3].map(k => { const x0 = 3 + k * 30, y0 = evY(x0), y1 = evY(x0 + 24); return `<g class="sway"><path d="M${x0} ${y0} L${x0 + 24} ${y1} L${x0 + 12} ${(y0 + y1) / 2 + 22} Z" fill="${k % 2 ? '#ffffff' : '#e5302a'}" stroke="#2a1210" stroke-width="1.6" stroke-linejoin="round"/>${k % 2 ? svgMaple(x0 + 12, (y0 + y1) / 2 + 8, .9, '#e5302a') : ''}</g>`; }).join('')}</svg>`,
+  birthday: i => { const word = 'HAPPY BIRTHDAY! ', cols = ['#ff5aa0', '#ffd23f', '#4fc8ff', '#7ed957', '#b48aff'];
+    return `<svg viewBox="0 0 120 54">${evStr('#2b2418', 16)}${[0, 1, 2, 3].map(k => { const x0 = 3 + k * 30, y0 = evY(x0), y1 = evY(x0 + 24), ch = word[(i * 4 + k) % word.length]; return `<g class="sway"><path d="M${x0} ${y0} L${x0 + 24} ${y1} L${x0 + 12} ${(y0 + y1) / 2 + 24} Z" fill="${cols[(i * 4 + k) % 5]}" stroke="#2b2418" stroke-width="1.6" stroke-linejoin="round"/><text x="${x0 + 12}" y="${(y0 + y1) / 2 + 11}" text-anchor="middle" font-family="Lilita One,Arial Rounded MT Bold,sans-serif" font-size="11" fill="#fff" stroke="#2b2418" stroke-width="2.2" paint-order="stroke">${ch === ' ' ? '' : ch}</text></g>`; }).join('')}</svg>`; },
+});
+Object.assign(EV_MASCOT, {
+  // a heart buddy holding a smaller heart, and a teddy bear
+  valentine: side => side === 'l'
+    ? `<svg viewBox="0 0 90 100"><ellipse cx="45" cy="96" rx="30" ry="4" fill="rgba(0,0,0,.25)"/><g class="bob">${svgHeart(45, 52, 5.2, '#ff5a8a')}
+      <circle cx="37" cy="44" r="3.4" fill="#3a1424"/><circle cx="53" cy="44" r="3.4" fill="#3a1424"/><circle cx="38" cy="43" r="1.2" fill="#fff"/><circle cx="54" cy="43" r="1.2" fill="#fff"/>
+      <circle cx="31" cy="52" r="4" fill="#ffb0c8"/><circle cx="59" cy="52" r="4" fill="#ffb0c8"/><path d="M40 53 q5 5 10 0" stroke="#3a1424" stroke-width="2.4" fill="none" stroke-linecap="round"/></g>
+      <g class="paw">${svgHeart(74, 30, 1.8, '#e5302a')}</g></svg>`
+    : `<svg viewBox="0 0 90 100"><ellipse cx="45" cy="96" rx="30" ry="5" fill="rgba(0,0,0,.25)"/>
+      <circle cx="26" cy="22" r="9" fill="#c88a5a" stroke="#3a1424" stroke-width="3"/><circle cx="64" cy="22" r="9" fill="#c88a5a" stroke="#3a1424" stroke-width="3"/>
+      <ellipse cx="45" cy="74" rx="24" ry="22" fill="#c88a5a" stroke="#3a1424" stroke-width="3"/><circle cx="45" cy="38" r="20" fill="#c88a5a" stroke="#3a1424" stroke-width="3"/>
+      <ellipse cx="45" cy="46" rx="9" ry="7" fill="#f0d0b0"/><circle cx="38" cy="35" r="2.8" fill="#3a1424"/><circle cx="52" cy="35" r="2.8" fill="#3a1424"/><ellipse cx="45" cy="43" rx="3" ry="2.2" fill="#3a1424"/>
+      <g class="bob">${svgHeart(45, 74, 2.6, '#e5302a')}</g></svg>`,
+  easter: side => side === 'l'
+    ? `<svg viewBox="0 0 90 100"><ellipse cx="45" cy="96" rx="28" ry="4" fill="rgba(0,0,0,.25)"/>
+      <g class="sway"><ellipse cx="34" cy="20" rx="7" ry="18" fill="#fff" stroke="#2e2a40" stroke-width="3"/><ellipse cx="34" cy="21" rx="3" ry="12" fill="#ffb0d0"/></g>
+      <g class="paw"><ellipse cx="56" cy="20" rx="7" ry="18" fill="#fff" stroke="#2e2a40" stroke-width="3"/><ellipse cx="56" cy="21" rx="3" ry="12" fill="#ffb0d0"/></g>
+      <ellipse cx="45" cy="74" rx="22" ry="21" fill="#fff" stroke="#2e2a40" stroke-width="3"/><circle cx="45" cy="46" r="18" fill="#fff" stroke="#2e2a40" stroke-width="3"/>
+      <circle cx="38" cy="44" r="2.8" fill="#2e2a40"/><circle cx="52" cy="44" r="2.8" fill="#2e2a40"/><ellipse cx="45" cy="50" rx="2.6" ry="2" fill="#ff8ab0"/>
+      <circle cx="33" cy="52" r="3.4" fill="#ffc8dc"/><circle cx="57" cy="52" r="3.4" fill="#ffc8dc"/>${svgEgg(45, 76, 2.2, '#c9ff9a', '#ffd23f')}</svg>`
+    : `<svg viewBox="0 0 90 100"><ellipse cx="45" cy="96" rx="32" ry="5" fill="rgba(0,0,0,.2)"/>${svgEgg(30, 66, 2.6, '#ffb0d0', '#9ad8ff')}${svgEgg(58, 64, 2.6, '#d0b8ff', '#ffd23f')}<g class="bob">${svgEgg(44, 54, 2.8, '#9ad8ff', '#ff8ab0')}</g>
+      <path d="M14 70 H76 L70 94 H20 Z" fill="#c8924a" stroke="#2e2a40" stroke-width="3" stroke-linejoin="round"/><path d="M24 74 V92 M34 74 V92 M44 74 V92 M54 74 V92 M64 74 V92" stroke="#8a5a22" stroke-width="2"/>
+      <path d="M16 72 Q45 20 74 72" fill="none" stroke="#2e2a40" stroke-width="4"/></svg>`,
+  // a beaver with a flag, and a big maple leaf
+  canada: side => side === 'l'
+    ? `<svg viewBox="0 0 90 100"><ellipse cx="45" cy="96" rx="30" ry="5" fill="rgba(0,0,0,.25)"/>
+      <ellipse cx="22" cy="88" rx="16" ry="7" fill="#6a4a2a" stroke="#2a1210" stroke-width="3" transform="rotate(-15 22 88)"/>
+      <ellipse cx="45" cy="70" rx="20" ry="23" fill="#9a6a3a" stroke="#2a1210" stroke-width="3"/><circle cx="45" cy="40" r="17" fill="#9a6a3a" stroke="#2a1210" stroke-width="3"/>
+      <circle cx="31" cy="27" r="5" fill="#9a6a3a" stroke="#2a1210" stroke-width="2.4"/><circle cx="59" cy="27" r="5" fill="#9a6a3a" stroke="#2a1210" stroke-width="2.4"/>
+      <circle cx="39" cy="37" r="2.6" fill="#2a1210"/><circle cx="51" cy="37" r="2.6" fill="#2a1210"/><ellipse cx="45" cy="44" rx="5" ry="3.4" fill="#2a1210"/>
+      <rect x="41" y="47" width="4" height="5" fill="#fff" stroke="#2a1210" stroke-width="1.2"/><rect x="45" y="47" width="4" height="5" fill="#fff" stroke="#2a1210" stroke-width="1.2"/>
+      <g class="paw"><path d="M66 64 V18" stroke="#2a1210" stroke-width="3"/><g class="flap"><rect x="66" y="18" width="22" height="13" fill="#fff" stroke="#2a1210" stroke-width="1.8"/><rect x="66" y="18" width="5" height="13" fill="#e5302a"/><rect x="83" y="18" width="5" height="13" fill="#e5302a"/>${svgMaple(77, 24.5, .75, '#e5302a')}</g></g></svg>`
+    : `<svg viewBox="0 0 90 100"><ellipse cx="45" cy="96" rx="28" ry="4" fill="rgba(0,0,0,.2)"/><g class="bob">${svgMaple(45, 50, 5.2, '#e5302a')}
+      <circle cx="37" cy="44" r="3" fill="#2a1210"/><circle cx="53" cy="44" r="3" fill="#2a1210"/><path d="M39 54 q6 6 12 0" stroke="#2a1210" stroke-width="2.6" fill="none" stroke-linecap="round"/></g></svg>`,
+  // a cake with candles, and a bunch of balloons
+  birthday: side => side === 'l'
+    ? `<svg viewBox="0 0 90 100"><ellipse cx="45" cy="96" rx="34" ry="5" fill="rgba(0,0,0,.25)"/>
+      <rect x="12" y="62" width="66" height="30" rx="8" fill="#ffe2b0" stroke="#2b2418" stroke-width="3"/><rect x="20" y="40" width="50" height="24" rx="7" fill="#ff9ac0" stroke="#2b2418" stroke-width="3"/>
+      <path d="M20 50 q6 8 12 0 q6 8 12 0 q6 8 12 0 q6 8 14 0" fill="#fff" stroke="#2b2418" stroke-width="2"/>
+      ${[30, 45, 60].map((x, k) => `<rect x="${x - 2.5}" y="24" width="5" height="17" fill="${['#4fc8ff', '#ffd23f', '#7ed957'][k]}" stroke="#2b2418" stroke-width="1.6"/><ellipse class="tw" cx="${x}" cy="19" rx="3.4" ry="5.5" fill="#ffb02a"/>`).join('')}
+      <circle cx="36" cy="76" r="2.6" fill="#2b2418"/><circle cx="54" cy="76" r="2.6" fill="#2b2418"/><path d="M39 82 q6 6 12 0" stroke="#2b2418" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg>`
+    : `<svg viewBox="0 0 90 100"><ellipse cx="45" cy="96" rx="20" ry="4" fill="rgba(0,0,0,.2)"/><path d="M45 94 Q40 70 30 40 M45 94 Q46 70 48 30 M45 94 Q52 72 64 44" stroke="#2b2418" stroke-width="1.6" fill="none"/>
+      <g class="bob"><ellipse cx="30" cy="30" rx="13" ry="16" fill="#ff5aa0" stroke="#2b2418" stroke-width="2.8"/><ellipse cx="48" cy="20" rx="13" ry="16" fill="#ffd23f" stroke="#2b2418" stroke-width="2.8"/><ellipse cx="64" cy="36" rx="13" ry="16" fill="#4fc8ff" stroke="#2b2418" stroke-width="2.8"/>
+      <ellipse cx="25" cy="24" rx="3" ry="5" fill="#fff" opacity=".6"/><ellipse cx="43" cy="14" rx="3" ry="5" fill="#fff" opacity=".6"/><ellipse cx="59" cy="30" rx="3" ry="5" fill="#fff" opacity=".6"/></g></svg>`,
+});
+// the birthday picker in Settings: month and day, or blank
+function bdayPicker() {
+  const wrap = el('div', 'flex gap-2'), s = profile.settings, cur = bdayOk(s.bday) ? s.bday.split('-') : ['', ''];
+  const mk = (n, from, to, label, val) => {
+    const sel = el('select', 'bday'); sel.setAttribute('aria-label', label);
+    const none = el('option', null, label); none.value = ''; sel.appendChild(none);
+    for (let i = from; i <= to; i++) { const o = el('option', null, n ? n[i - 1] : String(i)); o.value = String(i).padStart(2, '0'); sel.appendChild(o); }
+    sel.value = val; return sel;
+  };
+  const m = mk(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], 1, 12, 'Month', cur[0]), d = mk(null, 1, 31, 'Day', cur[1]);
+  const save = () => { const v = m.value && d.value ? `${m.value}-${d.value}` : ''; s.bday = bdayOk(v) ? v : ''; saveProfile(); Sfx.play('click', true); };
+  m.addEventListener('change', save); d.addEventListener('change', save);
+  wrap.appendChild(m); wrap.appendChild(d); return wrap;
+}
+document.head.insertAdjacentHTML('beforeend', '<style>select.bday{font:800 14px var(--font-body);color:var(--ink);background:var(--paper-2);border:3px solid var(--ink);border-radius:12px;padding:3px 6px;box-shadow:0 2px 0 var(--ink)}</style>');
+
+// ===== a tidier Battle modes screen: grouped, one line each, details on hover or focus =====
+document.head.insertAdjacentHTML('beforeend', `<style>
+#modes.grouped{display:flex!important;flex-direction:column;gap:6px}
+.mode-group{font-family:var(--font-display);font-weight:400;font-size:17px;letter-spacing:.03em;color:var(--text-soft);margin:6px 2px 0}
+.mode-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+#modes.grouped .mode-card{padding-top:10px;gap:3px;min-height:0}
+#modes.grouped .mode-card canvas{width:52px;height:52px}
+#modes.grouped .mode-card .mode-name{font-size:21px}
+#modes.grouped .mode-card .mode-desc.more{display:none}
+#modes.grouped .mode-card .mode-best{padding-top:6px}
+</style>`);
+const MODE_GROUPS = [['Play solo', ['seasonal', 'classic', 'endless', 'bossrush']], ['Daily and weekly', ['daily', 'weekly']], ['With a friend', ['coop', 'versus']], ['Make your own', ['maker']]];
+const renderModesEv = renderModes;
+renderModes = function () {
+  renderModesEv();
+  const box = ui.modes, cards = new Map([...box.querySelectorAll('.mode-card')].map(c => [[...c.classList].find(x => x.startsWith('mode-') && x !== 'mode-card').slice(5), c]));
+  // one short line per card; the full text moves to the tooltip
+  for (const c of cards.values()) {
+    const ds = [...c.querySelectorAll('.mode-desc')]; if (!ds.length) continue;
+    c.title = ds.map(d => d.textContent).join(' ');
+    const first = ds[0], m = first.textContent.match(/^.*?[.!?](\s|$)/); if (m) first.textContent = m[0].trim();
+    ds.slice(1).forEach(d => d.classList.add('more'));
+  }
+  const used = new Set(); box.innerHTML = ''; box.classList.add('grouped');
+  for (const [label, ids] of MODE_GROUPS) {
+    const list = ids.map(id => cards.get(id)).filter(Boolean); if (!list.length) continue;
+    box.appendChild(el('h4', 'mode-group', label)); const row = el('div', 'mode-row'); list.forEach(c => { row.appendChild(c); used.add(c); }); box.appendChild(row);
+  }
+  const rest = [...cards.values()].filter(c => !used.has(c));
+  if (rest.length) { box.appendChild(el('h4', 'mode-group', 'More')); const row = el('div', 'mode-row'); rest.forEach(c => row.appendChild(c)); box.appendChild(row); }
+};
 // ---------- safety: uploaded audio and player-typed text are treated as untrusted data ----------
 // An uploaded track is only ever handed to the browser's sandboxed audio decoder. It is never put in the page,
 // never given a URL, never run. On top of that, the file must look like real audio, decode within limits and
@@ -11373,6 +12421,140 @@ frame = function (now) {
   try { frameV10(now); } finally { if (hidden) { render = r; drawHub = h; } }
   // a deliberately calmer frame rate must not be mistaken for a slow machine
   if (throttled || hidden) { ui.ft = keepFt; ui.ftT = keepFtT; }
+};
+// ---------- entrances: hostiles march out of the bunker door, and bosses get a proper cinematic ----------
+
+// ===== out of the bunker =====
+// Walkers used to start off the edge of the board and stroll across the bunker's roof. Now they step out of the
+// arched door, fading in from the dark, swing round in front of the bunker and join the road. While they're still
+// inside, towers can't see them.
+const GATE = { x: 22, s: 1.15, mid: 30, ax0: 19, ax1: 41, dy: 22, ah: 26, E: 96 };
+const gateX = x => GATE.x + (x - GATE.x) * GATE.s;
+function gateOk() { const s = S.map.segs[0]; return s && s.dx > .9 && s.len >= GATE.E + 30 && !S.map.def.custom; }
+function gateEmerge(e) {
+  if (e.dist >= GATE.E || e.detour != null) { e.fromGate = false; e.inside = false; e.emerge = 1; return; }
+  const y = (S.map.spawnRow + .5) * T, k = Math.max(0, e.dist) / GATE.E, mx = gateX(GATE.mid), door = y + GATE.dy * GATE.s - 1;
+  if (k < .3) { const q = k / .3; e.x = mx; e.y = door - 12 + 12 * q; e.inside = true; e.emerge = q; e.dirx = 0; e.diry = 1; }
+  else {
+    const t = (k - .3) / .7, u = 1 - t, x0 = mx, y0 = door, x1 = mx + 14, y1 = door + 8, x2 = GATE.E - T * .5, y2 = y;
+    e.x = u * u * x0 + 2 * u * t * x1 + t * t * x2; e.y = u * u * y0 + 2 * u * t * y1 + t * t * y2;
+    const dx = 2 * u * (x1 - x0) + 2 * t * (x2 - x1), dy = 2 * u * (y1 - y0) + 2 * t * (y2 - y1), l = Math.hypot(dx, dy) || 1;
+    e.dirx = dx / l; e.diry = dy / l; e.inside = false; e.emerge = 1;
+  }
+}
+const spawnEnemyEn = spawnEnemy;
+spawnEnemy = function (type, dist = 0, spec = null) {
+  const e = spawnEnemyEn(type, dist, spec);
+  if (e && !e.def.fly && dist < 5 && S.mode !== 'demo' && gateOk()) { e.fromGate = true; gateEmerge(e); if (e.def.boss) bossBreakout(e); }
+  return e;
+};
+const updateEn = update;
+update = function (dt) {
+  updateEn(dt);
+  if (!S || !S.enemies.length) return;
+  for (const e of S.enemies) if (e.fromGate && e.alive) gateEmerge(e);
+};
+// towers can't target anyone still inside the bunker
+const inRangeEn = inRange;
+inRange = function (tw, rangePx) { const L = inRangeEn(tw, rangePx); for (let i = L.length - 1; i >= 0; i--) if (L[i].inside) L.splice(i, 1); return L; };
+// inside the doorway they're clipped to the arch and fade in from the dark
+const drawEnemyEn = drawEnemy;
+drawEnemy = function (g, e, ...rest) {
+  if (!e.inside || g !== ctx) return drawEnemyEn(g, e, ...rest);
+  const y = (S.map.spawnRow + .5) * T, ay = y + GATE.dy, ah = GATE.ah, a0 = GATE.ax0, a1 = GATE.ax1, mid = GATE.mid;
+  g.save();
+  if (!e.def.boss) {
+    g.translate(GATE.x, y); g.scale(GATE.s, GATE.s); g.translate(-GATE.x, -y);
+    g.beginPath(); g.moveTo(a0, ay + 6); g.lineTo(a0, ay - ah + 9); g.quadraticCurveTo(a0, ay - ah, mid, ay - ah); g.quadraticCurveTo(a1, ay - ah, a1, ay - ah + 9); g.lineTo(a1, ay + 6); g.closePath(); g.clip();
+    g.translate(GATE.x, y); g.scale(1 / GATE.s, 1 / GATE.s); g.translate(-GATE.x, -y);
+  }
+  g.globalAlpha *= .2 + .8 * e.emerge;
+  try { return drawEnemyEn(g, e, ...rest); } finally { g.restore(); }
+};
+// a boss doesn't fit through the door: it bursts the shutter open in a cloud of dust
+function bossBreakout(e) {
+  const y = (S.map.spawnRow + .5) * T, x = gateX(GATE.mid);
+  S.gateT = S.anim;
+  for (let i = 0; i < 22; i++) { const a = Math.random() * TAU, v = 40 + Math.random() * 110; S.particles.push({ x: x + (Math.random() - .5) * 30, y: y + 20, vx: Math.cos(a) * v, vy: Math.sin(a) * v * .5 - 30, life: .9 + Math.random() * .5, max: 1.3, size: 7 + Math.random() * 7, color: '#b9a98a', kind: 'smoke' }); }
+  S.rings.push({ x, y: y + 20, r: 10, max: 90, life: .6, maxLife: .6, color: '230,210,170' });
+  addShake(12);
+}
+
+// ===== boss intros: letterbox, spotlight, a slam-in name card. No zoom. =====
+const BOSS_CINE = { dur: 3.4 };
+startCine = function (e) {
+  if (!S || S.mode !== 'playing' || S.anim - (S.cineAt ?? -99) < 18) return;
+  S.cineAt = S.anim;
+  const z = e.zed, name = e.king || (z ? 'Abomination' : 'Goliath');
+  S.cine = { e, t: 0, dur: REDUCED ? 2.2 : BOSS_CINE.dur, name: name.toUpperCase(), sub: e.king && !e.mini ? 'Commander of this region' : e.mini ? 'Mini-boss with a nasty trick' : z ? 'Stitched-together horror' : 'Heavy assault walker', z, steps: 0 };
+  S.slowmo = Math.max(S.slowmo || 0, 1.3);
+  if (profile.settings.sfx > 0 && Sfx.ctx && Sfx.ctx.state === 'running') {
+    Sfx.noise(1.4, .12, 200, 2400, 0, { rev: .4 }); // a rising siren-like whoosh
+    Sfx.tone(z ? 170 : 110, z ? 70 : 46, 1.4, .07, 'sawtooth', .1, { lp: 700, det: 25, rev: .4 });
+    for (let k = 0; k < 2; k++) { Sfx.tone(523, 523, .32, .03, 'square', .15 + k * .5, { lp: 1800 }); Sfx.tone(392, 392, .32, .03, 'square', .4 + k * .5, { lp: 1800 }); } // warning klaxon
+    if (z) Sfx.tone(240, 110, .9, .04, 'square', .3, { lp: 900, det: 40 });
+  }
+};
+cineCam = function () {}; // the camera stays put
+// heavy footsteps while the card is up
+const updateCine = update;
+update = function (dt) {
+  updateCine(dt);
+  const c = S && S.cine; if (!c) return;
+  const steps = Math.floor((c.t - .7) / .55);
+  if (c.t > .7 && steps > c.steps - 1 && steps < 4) { c.steps = steps + 1; addShake(7); if (profile.settings.sfx > 0 && Sfx.ctx && Sfx.ctx.state === 'running') Sfx.thump(c.z ? 70 : 55, .45, .35); }
+};
+let spotSpr = null;
+function spotSprite() {
+  if (spotSpr) return spotSpr;
+  const c = mkCv(512, 512), g = c.getContext('2d'), gr = g.createRadialGradient(256, 256, 30, 256, 256, 256);
+  gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(.35, 'rgba(0,0,0,.05)'); gr.addColorStop(1, 'rgba(0,0,0,.62)');
+  g.fillStyle = gr; g.fillRect(0, 0, 512, 512); return (spotSpr = c);
+}
+const easeOut = v => 1 - Math.pow(1 - v, 3), easeIO = v => v * v * (3 - 2 * v);
+drawCineCard = function (g) {
+  const c = S.cine; if (!c) return;
+  const k = c.t / c.dur, inn = easeOut(clamp(k / .14, 0, 1)), out = easeIO(clamp((k - .82) / .18, 0, 1)), env = inn * (1 - out);
+  // spotlight on the boss: everything else dims
+  const e = c.e, R = 230;
+  g.save(); g.globalAlpha = env;
+  const sp = spotSprite(); g.drawImage(sp, e.x - R, e.y - 30 - R, R * 2, R * 2);
+  g.fillStyle = 'rgba(0,0,0,.62)'; // fill around the spotlight sprite
+  g.fillRect(-20, -20, W + 40, Math.max(0, e.y - 30 - R + 20)); g.fillRect(-20, e.y - 30 + R, W + 40, H + 40);
+  g.fillRect(-20, e.y - 30 - R, Math.max(0, e.x - R + 20), R * 2); g.fillRect(e.x + R, e.y - 30 - R, W + 40, R * 2);
+  g.restore();
+  // letterbox bars with a scrolling hazard tape on their inner edge
+  const bh = 58 * env;
+  if (bh > .5) {
+    g.fillStyle = '#0b0a08'; g.fillRect(-20, -20, W + 40, bh + 20); g.fillRect(-20, H - bh, W + 40, bh + 20);
+    for (const [y0, dir] of [[bh - 10, 1], [H - bh, -1]]) {
+      g.save(); g.beginPath(); g.rect(-20, y0, W + 40, 10); g.clip();
+      g.fillStyle = c.z ? '#7dff6a' : '#ffc23a'; g.fillRect(-20, y0, W + 40, 10);
+      g.fillStyle = '#16120c'; const off = (S.anim * 60 * dir) % 28;
+      for (let x = -40 + off; x < W + 40; x += 28) { g.beginPath(); g.moveTo(x, y0 + 10); g.lineTo(x + 10, y0); g.lineTo(x + 20, y0); g.lineTo(x + 10, y0 + 10); g.closePath(); g.fill(); }
+      g.restore();
+    }
+    g.save(); g.globalAlpha = env; g.font = `700 15px ${HUD_FONT}`; g.textBaseline = 'middle'; g.fillStyle = c.z ? '#9dff8a' : '#ff6a5a';
+    const warn = '⚠  WARNING · HEAVY HOSTILE APPROACHING  ⚠', ww = g.measureText(warn).width + 60, off = (S.anim * 70) % ww;
+    for (let x = -off; x < W; x += ww) g.fillText(warn, x, (bh - 10) / 2);
+    g.restore();
+  }
+  // the name card slams in from the right, overshoots a touch and settles
+  const ci = clamp((k - .1) / .16, 0, 1), slam = ci < 1 ? 1 - easeOut(ci) * 1.06 + (ci > .8 ? (ci - .8) * .3 : 0) : 0, x0 = W * .34 + slam * W * .8 + out * W * .8;
+  if (ci > 0) {
+    const y = H * .64, h = 96, w = W * .68;
+    g.save(); g.translate(x0, y);
+    poly(g, [[0, -h / 2], [w, -h / 2], [w, h / 2], [-28, h / 2]]); g.fillStyle = 'rgba(14,11,8,.92)'; g.fill();
+    poly(g, [[-6, -h / 2 - 9], [w, -h / 2 - 9], [w, -h / 2], [-4, -h / 2]]); g.fillStyle = c.z ? '#7dff6a' : '#e5433a'; g.fill();
+    poly(g, [[-30, h / 2], [w, h / 2], [w, h / 2 + 5], [-31, h / 2 + 5]]); g.fillStyle = c.z ? '#3a8a2a' : '#8a1f1a'; g.fill();
+    // the name wipes on letter by letter
+    const reveal = clamp((k - .2) / .3, 0, 1), shown = c.name.slice(0, Math.ceil(c.name.length * reveal));
+    g.textAlign = 'left'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+    g.font = `54px ${FONT}`; g.lineWidth = 7; g.strokeStyle = '#000'; g.strokeText(shown, 30, -12); g.fillStyle = c.z ? '#c9ffb8' : '#ffe08a'; g.fillText(shown, 30, -12);
+    g.globalAlpha = clamp((k - .38) / .12, 0, 1); g.font = `700 17px ${HUD_FONT}`; g.fillStyle = '#e8e2d4'; g.fillText(c.sub.toUpperCase(), 34, 28);
+    const hp = Math.round(e.maxHp || e.hp || 0); if (hp) { g.textAlign = 'right'; g.fillStyle = c.z ? '#7dff6a' : '#ff8a7a'; g.fillText(`HP ${fmt(hp)}`, w - 24, 28); }
+    g.restore();
+  }
 };
 
 function setView(v) {
