@@ -9656,8 +9656,8 @@ function drawHub(dt) {
   items.sort((a, b) => a.y - b.y);
   for (const it of items) {
     if (it.b) {
-      const b = it.b, on = hub.hover === b.id, bob = on && !REDUCED ? Math.abs(Math.sin(hub.t * 6)) * -5 : 0, sc = on ? 1.05 : 1;
-      g.save(); g.translate(b.x, b.y + bob); g.scale(sc, sc); drawHubBuilding(g, b.id, hub.t); drawTierExtras(g, b, hubTier(b.id), hub.t); g.restore();
+      const b = it.b, X = hubSpring(b);
+      g.save(); g.translate(b.x, b.y); hubShadow(g, b); g.translate(0, X.dy); g.scale(X.sx, X.sy); drawHubBuilding(g, b.id, hub.t); drawTierExtras(g, b, hubTier(b.id), hub.t); g.restore();
     } else if (it.d) { g.save(); g.translate(it.d.x, it.d.y); g.scale(1.5, 1.5); drawDecorItem(g, it.d.id, hub.t); g.restore(); }
     else drawPerson(g, it.spec, it.p.x, it.p.y, .42, 'stand', hub.t * 3 + it.p.x);
   }
@@ -12641,9 +12641,9 @@ function mineSpots(tw, range) {
   return out;
 }
 function updateMinelayer(tw, L, range, dt) {
-  const M = v12List('mines'), mine = M.filter(m => m.tw === tw);
-  tw.charge = mine.length / L.max;
-  if (tw.cool > 0 || mine.length >= L.max) return;
+  const M = v12List('mines'), n = tw.mineN | 0;
+  tw.charge = n / L.max;
+  if (tw.cool > 0 || n >= L.max) return;
   const spots = mineSpots(tw, range); if (!spots.length) return;
   // lay it where nothing is already waiting, ahead of the hostiles if there are any
   let best = null, bs = -Infinity;
@@ -12656,25 +12656,32 @@ function updateMinelayer(tw, L, range, dt) {
   if (!best) return;
   tw.cool = 1 / L.rate;
   tw.angle = Math.atan2(best.y - tw.y, best.x - tw.x); tw.recoil = 1; tw.flash = .15;
+  tw.mineN = n + 1;
   M.push({ tw, x: best.x + (Math.random() - .5) * 8, y: best.y + (Math.random() - .5) * 6, sx: tw.x, sy: tw.y - 16, t: 0, fly: .42, armed: false, ph: Math.random() * TAU });
   Sfx.play('launch');
 }
 function updateMines(dt) {
   const M = S.mines; if (!M || !M.length) return;
+  const G = enemyCells(), cs = G.cs, trip = (T * .42) ** 2, alive = new Set(S.towers);
   for (const m of M) {
     if (!m.armed) { if ((m.t += dt) >= m.fly) { m.armed = true; Sfx.play('mineSet'); S.particles.push({ x: m.x, y: m.y, vx: 0, vy: 0, life: .25, max: .25, size: 10, color: 'rgba(240,230,200,.8)', kind: 'smoke' }); } continue; }
     m.ph += dt;
-    const trip = (T * .42) ** 2;
+    // only the hostiles in the mine's own grid cell and its neighbours can be standing on it
+    const c0 = Math.floor(m.x / cs) + 4, r0 = Math.floor(m.y / cs) + 4;
     let hit = false;
-    for (const e of S.enemies) { if (e.alive && !e.def.fly && !hiddenFrom(e) && e.x > 0 && d2(e.x, e.y, m.x, m.y) <= trip + (e.def.r * T * (e.big || 1)) ** 2) { hit = true; break; } }
+    for (let c = c0 - 1; c <= c0 + 1 && !hit; c++) for (let r = r0 - 1; r <= r0 + 1 && !hit; r++) {
+      const a = G.cells.get(c * 256 + r); if (!a) continue;
+      for (const e of a) if (e.alive && !e.def.fly && !hiddenFrom(e) && e.x > 0 && d2(e.x, e.y, m.x, m.y) <= trip + (e.def.r * T * (e.big || 1)) ** 2) { hit = true; break; }
+    }
     if (!hit) continue;
     m.dead = true;
     const L = towerStats(m.tw), sp = L.splash * T;
     explode({ tx: m.x, ty: m.y, dmg: L.dmg, splash: sp, tw: m.tw, cluster: L.cluster || 0 });
-    if (L.freeze) for (const e of S.enemies) if (e.alive && !e.def.fly && d2(e.x, e.y, m.x, m.y) <= sp * sp) { e.frozen = e.def.boss ? L.freeze * .35 : L.freeze; S.rings.push({ x: e.x, y: e.y, r: 4, max: 22, life: .3, maxLife: .3, color: '190,240,255' }); }
-    if (L.freeze) Sfx.play('freeze');
+    if (L.freeze) { for (const e of S.enemies) if (e.alive && !e.def.fly && d2(e.x, e.y, m.x, m.y) <= sp * sp) { e.frozen = e.def.boss ? L.freeze * .35 : L.freeze; S.rings.push({ x: e.x, y: e.y, r: 4, max: 22, life: .3, maxLife: .3, color: '190,240,255' }); } Sfx.play('freeze'); }
   }
-  S.mines = M.filter(m => !m.dead && S.towers.includes(m.tw));
+  S.mines = M.filter(m => !m.dead && alive.has(m.tw));
+  for (const tw of S.towers) if (tw.type === 'mines') tw.mineN = 0;
+  for (const m of S.mines) m.tw.mineN = (m.tw.mineN | 0) + 1;
 }
 const updateTowersV11 = updateTowers;
 updateTowers = function (dt) { updateTowersV11(dt); updateOrbs(dt); updateMines(dt); };
@@ -12685,31 +12692,43 @@ const sellTowerV12 = sellTower;
 sellTower = function (tw, ...a) { const r = sellTowerV12(tw, ...a); if (S && S.mines && !S.towers.includes(tw)) S.mines = S.mines.filter(m => m.tw !== tw); return r; };
 
 // ----- drawing: mines sit on the road, drones and lasers above everything -----
+// Mines and drones are drawn once per look into small sprites and stamped, instead of a dozen shapes each frame.
+const V12SPR = new Map();
+function v12Sprite(key, w, h, ox, oy, fn) {
+  let sp = V12SPR.get(key);
+  if (!sp) { const k = 3, c = mkCv(Math.ceil(w * k), Math.ceil(h * k)), g = c.getContext('2d'); g.setTransform(k, 0, 0, k, ox * k, oy * k); g.lineJoin = 'round'; g.lineCap = 'round'; fn(g); sp = { c, w, h, ox, oy }; V12SPR.set(key, sp); }
+  return sp;
+}
+const mineCols = br => br === 1 ? ['#5aa8d8', '#bff0ff'] : br === 0 ? ['#c9702a', '#ffd08a'] : ['#5d6a3a', '#ffe07a'];
 function drawMine(g, m) {
-  const F = m.tw.branch === 1 ? ['#5aa8d8', '#bff0ff'] : m.tw.branch === 0 ? ['#c9702a', '#ffd08a'] : ['#5d6a3a', '#ffe07a'];
+  const F = mineCols(m.tw.branch);
   if (!m.armed) {
     const k = m.t / m.fly, x = lerp(m.sx, m.x, k), y = lerp(m.sy, m.y, k) - Math.sin(k * Math.PI) * 46;
     ellipse(g, m.x, m.y + 2, 6 * k, 2.6 * k); g.fillStyle = 'rgba(0,0,0,.25)'; g.fill();
     circle(g, x, y, 5.5); g.fillStyle = F[0]; g.fill(); ol(g, 1.8);
     return;
   }
-  const pulse = (Math.sin(m.ph * 5) + 1) / 2;
-  ellipse(g, m.x + 1.5, m.y + 3, 10, 4.5); g.fillStyle = 'rgba(0,0,0,.25)'; g.fill();
-  ellipse(g, m.x, m.y + 1.5, 9, 4.6); g.fillStyle = shade(F[0], -.35); g.fill(); ol(g, 1.8);
-  ellipse(g, m.x, m.y, 9, 4.6); g.fillStyle = F[0]; g.fill(); ol(g, 1.8);
-  for (let i = 0; i < 4; i++) { const a = i / 4 * TAU + .4; circle(g, m.x + Math.cos(a) * 6, m.y + Math.sin(a) * 2.8, 1.1); g.fillStyle = OUT; g.fill(); }
-  ellipse(g, m.x, m.y - .8, 3, 1.7); g.fillStyle = pulse > .5 ? '#ff4a3a' : '#7a2a24'; g.fill();
-  if (pulse > .5) glow(g, m.x, m.y - 1, 9, '255,80,60', .5);
+  const on = Math.sin(m.ph * 5) > 0, sp = v12Sprite(`mine|${m.tw.branch}|${on}`, 26, 14, 12, 6, g => {
+    ellipse(g, 1.5, 3, 10, 4.5); g.fillStyle = 'rgba(0,0,0,.25)'; g.fill();
+    ellipse(g, 0, 1.5, 9, 4.6); g.fillStyle = shade(F[0], -.35); g.fill(); ol(g, 1.8);
+    ellipse(g, 0, 0, 9, 4.6); g.fillStyle = F[0]; g.fill(); ol(g, 1.8);
+    for (let i = 0; i < 4; i++) { const a = i / 4 * TAU + .4; circle(g, Math.cos(a) * 6, Math.sin(a) * 2.8, 1.1); g.fillStyle = OUT; g.fill(); }
+    ellipse(g, 0, -.8, 3, 1.7); g.fillStyle = on ? '#ff4a3a' : '#7a2a24'; g.fill();
+  });
+  g.drawImage(sp.c, m.x - sp.ox, m.y - sp.oy, sp.w, sp.h);
+  if (on) glow(g, m.x, m.y - 1, 9, '255,80,60', .5);
 }
 function drawDrone(g, d, tw) {
   const h = 22 * d.lift, col = tw.branch === 0 ? '#e0783a' : tw.branch === 1 ? '#3fb8e0' : TOWERS.hangar.color, x = d.x, y = d.y - h, tilt = clamp(d.vx / 200, -.35, .35);
   ellipse(g, x + 4, d.y + 6, 9, 3.6); g.fillStyle = `rgba(0,0,0,${.12 + .14 * d.lift})`; g.fill();
-  g.save(); g.translate(x, y); g.rotate(tilt);
-  g.strokeStyle = OUT; g.lineWidth = 2.4; g.beginPath(); g.moveTo(-9, -4); g.lineTo(9, 4); g.moveTo(-9, 4); g.lineTo(9, -4); g.stroke();
-  for (const [rx, ry] of [[-9, -4], [9, -4], [-9, 4], [9, 4]]) { ellipse(g, rx, ry - 2, 6, 2); g.fillStyle = 'rgba(220,235,245,.55)'; g.fill(); g.strokeStyle = 'rgba(43,36,24,.6)'; g.lineWidth = 1; g.stroke(); }
-  rr(g, -6, -4, 12, 8, 3.5); g.fillStyle = vgrad(g, -4, 4, col); g.fill(); ol(g, 1.8);
-  circle(g, 3, 0, 1.6); g.fillStyle = d.tgt ? '#ff4a3a' : '#5aff8a'; g.fill();
-  g.restore();
+  const sp = v12Sprite(`drone|${col}|${!!d.tgt}`, 30, 18, 15, 9, g => {
+    g.strokeStyle = OUT; g.lineWidth = 2.4; g.beginPath(); g.moveTo(-9, -4); g.lineTo(9, 4); g.moveTo(-9, 4); g.lineTo(9, -4); g.stroke();
+    for (const [rx, ry] of [[-9, -4], [9, -4], [-9, 4], [9, 4]]) { ellipse(g, rx, ry - 2, 6, 2); g.fillStyle = 'rgba(220,235,245,.55)'; g.fill(); g.strokeStyle = 'rgba(43,36,24,.6)'; g.lineWidth = 1; g.stroke(); }
+    rr(g, -6, -4, 12, 8, 3.5); g.fillStyle = vgrad(g, -4, 4, col); g.fill(); ol(g, 1.8);
+    circle(g, 3, 0, 1.6); g.fillStyle = d.tgt ? '#ff4a3a' : '#5aff8a'; g.fill();
+  });
+  if (!tilt) { g.drawImage(sp.c, x - sp.ox, y - sp.oy, sp.w, sp.h); return; }
+  g.save(); g.translate(x, y); g.rotate(tilt); g.drawImage(sp.c, -sp.ox, -sp.oy, sp.w, sp.h); g.restore();
 }
 function drawOrb(g, o) {
   const top = -40;
@@ -13019,11 +13038,17 @@ hubStatic = function () {
   drawRadarProp(g, 905, 160, 2.2, 0);
   drawTent(g, 120, 215, 2.3, th); drawTent(g, 380, 140, 1.9, th);
   // the tree line: the same stacked trees as the maps, back to front so they overlap properly
-  const step = 74, trees = [];
+  // A tidy tree line hugging the camp, thinning out into open meadow further away. Nothing is painted where the
+  // menu panel covers the screen, so the hidden trees cost nothing and the visible ones don't crowd each other.
+  const step = 86, trees = [], mr = ui.hubMenu.getBoundingClientRect(), under = (x, y) => { const px = zx + x * s, py = zy + y * s; return px > mr.left + 14 && px < mr.right - 14 && py > mr.top + 14 && py < mr.bottom - 14; };
   for (let x = Math.floor(vx0 / step) * step; x < vx1 + step; x += step) for (let y = Math.floor(vy0 / step) * step; y < vy1 + step; y += step) {
-    const jx = x + (R() - .5) * 50, jy = y + (R() - .5) * 40, k = R(), sc = 2 + R() * .6, j = R();
+    const jx = x + (R() - .5) * 46, jy = y + (R() - .5) * 36, k = R(), sc = 2 + R() * .5, j = R(), keep = R();
     if (jx > -30 && jx < HUB_W + 30 && jy > 40 && jy < HUB_H + 40) continue;
-    trees.push({ x: jx, y: jy, tk: k < .45 ? treeKind('oak', j, 'meadow') : k < .75 ? 'pine' : 'bush', s: sc * (k < .75 ? .78 : .8), j });
+    const far = Math.max(-30 - jx, jx - HUB_W - 30, 40 - jy, jy - HUB_H - 40);
+    if (under(jx, jy - 20)) continue;
+    if (far < 190) { if (keep < .2) continue; trees.push({ x: jx, y: jy, tk: k < .45 ? treeKind('oak', j, 'meadow') : k < .78 ? 'pine' : 'bush', s: sc * (k < .78 ? .78 : .8), j }); }
+    else if (keep < .22) trees.push({ x: jx, y: jy, tk: k < .55 ? 'bush' : k < .8 ? treeKind('oak', j, 'meadow') : 'pine', s: sc * .72, j });
+    else if (keep < .3) drawDecor(g, 'rock', jx, jy, 1.7, j, th, 0, 0);
   }
   trees.sort((a, b) => a.y - b.y);
   for (const t of trees) { shadow(t.x, t.y, 18 * t.s); drawTree(g, t.tk, t.x, t.y, t.s, t.j, th, 0, 0); }
@@ -13505,7 +13530,7 @@ padFire = function (i, n, repeat) { if (n === 'b') Input.lastB = performance.now
 const appBackV12 = window.appBack;
 window.appBack = function () { if (performance.now() - (Input.lastB || 0) < 450) return 'ok'; return appBackV12(); };
 // Android asks the page to free memory when the device runs low
-window.appTrim = function () { try { V9.spr.clear(); glowCache.clear(); CM.thumbs.clear(); CC.thumbs.clear(); COOP_MODE_CACHE.clear(); } catch { /* best effort */ } };
+window.appTrim = function () { try { V9.spr.clear(); glowCache.clear(); CM.thumbs.clear(); CC.thumbs.clear(); COOP_MODE_CACHE.clear(); V12SPR.clear(); HB.clear(); } catch { /* best effort */ } };
 
 document.head.insertAdjacentHTML('beforeend', `<style>
 .px .card{max-width:980px;width:min(980px,96vw);max-height:92dvh;overflow-y:auto}
@@ -13797,6 +13822,93 @@ openSettings = function () {
   row('Controllers', `${padsNow().length || 'no'} connected · test buttons and rebind them`, btn('btn-gold btn-sm', 'Set up', () => openControllers()));
   row('Redeem a code', 'free stuff from the game\'s creator', btn('btn-gold btn-sm', 'Enter code', () => openRedeem()));
 };
+// ---------- v12 base camp: chunky 3D buildings with sunlight and shadows, and springy, bouncy reactions ----------
+// Each building is still a cached sprite redrawn about ten times a second (two per frame at most). The sprite now
+// gets a sunlit gradient and a solid side, extruded down and to the right, so it reads as a little 3D model. Every
+// frame only adds a spring update and one skewed shadow stamp per building.
+
+// ----- springs: drop in on arrival, hop on hover, squash when tapped, and breathe gently while idle -----
+const HSP = new Map(), HUB3 = { a: mkCv(8, 8), b: mkCv(8, 8), seen: 0 };
+function hubSpringState(id) { let s = HSP.get(id); if (!s) { s = { s: 1, v: 0, q: 0, qv: 0, y: 0, yv: 0 }; HSP.set(id, s); } return s; }
+function hubSpring(b) {
+  if (REDUCED) return { dy: 0, sx: 1, sy: 1 };
+  const S2 = hubSpringState(b.id), dt = Math.min(.05, hub.dt || .016), on = hub.hover === b.id;
+  if (on && !S2.on) S2.yv -= 230; // a little hop when the pointer or focus lands on it
+  S2.on = on;
+  S2.v += ((on ? 1.07 : 1) - S2.s) * 260 * dt - S2.v * 13 * dt; S2.s += S2.v * dt;
+  S2.qv += -S2.q * 300 * dt - S2.qv * 11 * dt; S2.q += S2.qv * dt;
+  S2.yv += -S2.y * 210 * dt - S2.yv * 10 * dt; S2.y += S2.yv * dt;
+  const br = 1 + .012 * Math.sin(hub.t * 2.1 + b.x * .013);
+  return { dy: S2.y, sx: S2.s * (1 + S2.q * .55), sy: S2.s * (1 - S2.q) * br };
+}
+// coming back to base: buildings drop in from above, one after another
+const drawHubV12b = drawHub;
+drawHub = function (dt) {
+  hub.dt = dt;
+  const now = performance.now();
+  if (now - HUB3.seen > 600 && !REDUCED) HUB.forEach((b, i) => { const S2 = hubSpringState(b.id); S2.y = -150 - i * 34; S2.yv = 0; S2.q = 0; S2.qv = 0; });
+  HUB3.seen = now;
+  drawHubV12b(dt);
+};
+// tapping a building squashes it before its screen opens
+ui.hubHots.addEventListener('pointerdown', ev => {
+  const e = ev.target.closest && ev.target.closest('.hot'); if (!e) return;
+  for (const id in hub.hots) if (hub.hots[id] === e) { const S2 = hubSpringState(id); S2.qv += 4.2; S2.yv += 60; Sfx.play('boing', true); }
+});
+
+const HUB_STILL = { album: 1, heroes: 1, shop: 1, quests: 1 };
+// ----- the sprite: art, sunlight, then a solid side and outline behind it -----
+hubSpriteDraw = function (e, b, id, tier, k, tq) {
+  // these have no moving parts until they're upgraded, so once drawn they never need redrawing
+  if (HUB_STILL[id] && !tier && e.drawnCv === e.cv) return;
+  e.drawnCv = e.cv;
+  const W = e.cv.width, H = e.cv.height, A = HUB3.a, B = HUB3.b;
+  for (const c of [A, B]) if (c.width < W || c.height < H) { c.width = Math.max(c.width, W); c.height = Math.max(c.height, H); }
+  const a = A.getContext('2d');
+  a.setTransform(1, 0, 0, 1, 0, 0); a.globalCompositeOperation = 'source-over'; a.globalAlpha = 1; a.clearRect(0, 0, W, H);
+  a.setTransform(k, 0, 0, k, -e.x0 * k, -e.y0 * k); a.lineJoin = 'round'; a.lineCap = 'round';
+  const tt = tq / 10; drawHubBuildingV10(a, id, tt); drawTierExtrasV10(a, b, tier, tt);
+  // sunlight from the upper left: warm on top, a touch of shade toward the ground
+  a.setTransform(1, 0, 0, 1, 0, 0); a.globalCompositeOperation = 'source-atop';
+  const gr = a.createLinearGradient(0, 0, W * .5, H);
+  gr.addColorStop(0, 'rgba(255,242,205,.2)'); gr.addColorStop(.5, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(25,30,15,.18)');
+  a.fillStyle = gr; a.fillRect(0, 0, W, H); a.globalCompositeOperation = 'source-over';
+  // the solid side: the silhouette pushed down and a little right, darkest at the bottom. It's built once per
+  // look (size and tier) and reused, so the ten-a-second refresh only redraws the art on top.
+  const c = e.cv.getContext('2d'), D = 9, ox = .42, key = W + 'x' + H + '|' + e.x0.toFixed(1) + '|' + e.y0.toFixed(1);
+  if (!e.side || e.sideKey !== key) {
+    const sc = e.side && e.side.width === W && e.side.height === H ? e.side : mkCv(W, H), s2 = sc.getContext('2d');
+    s2.setTransform(1, 0, 0, 1, 0, 0); s2.clearRect(0, 0, W, H);
+    silOf(A, B, W, H, OUT); s2.drawImage(B, 0, 0, W, H, Math.round((D * ox + .8) * k), Math.round((D + 1.2) * k), W, H);
+    silOf(A, B, W, H, '#4f4330');
+    for (let i = D; i > D / 2; i--) s2.drawImage(B, 0, 0, W, H, Math.round(i * ox * k), Math.round(i * k), W, H);
+    silOf(A, B, W, H, '#7a6a4c');
+    for (let i = Math.floor(D / 2); i >= 1; i--) s2.drawImage(B, 0, 0, W, H, Math.round(i * ox * k), Math.round(i * k), W, H);
+    e.side = sc; e.sideKey = key;
+  }
+  c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, W, H);
+  c.drawImage(e.side, 0, 0); c.drawImage(A, 0, 0, W, H, 0, 0, W, H);
+};
+// The sun throws each building's shadow back and to the right across the grass. Shadows never move, so they're
+// painted straight into the cached ground layer once the buildings exist (and again only if one is upgraded).
+function hubShadow() {}
+function hubBakeShadows() {
+  const st = hub.stat; if (!st || REDUCED) return;
+  const es = HUB.map(b => HB.get(b.id)); if (es.some(e => !e || !e.w)) return;
+  const sig = es.map(e => e.base).join(',');
+  if (st._sh === sig) return;
+  if (st._sh) { hub.stat = hubStatic(); return; } // a building changed look: repaint the ground next frame
+  const { dpr, s, zx, zy } = hub, g = st.getContext('2d'), tmp = mkCv(8, 8);
+  g.save(); g.setTransform(dpr, 0, 0, dpr, HUB_M * dpr, HUB_M * dpr); g.translate(zx, zy); g.scale(s, s);
+  HUB.forEach((b, i) => {
+    const e = es[i]; tmp.width = e.cv.width; tmp.height = e.cv.height; silOf(e.cv, tmp, e.cv.width, e.cv.height, '#1e2a12');
+    g.save(); g.translate(b.x, b.y); g.transform(1, 0, -.6, .3, 0, 0); g.globalAlpha = .2; g.drawImage(tmp, e.x0, e.y0, e.w, e.h); g.restore();
+  });
+  g.restore();
+  st._sh = sig;
+}
+const drawHubV12c = drawHub;
+drawHub = function (dt) { drawHubV12c(dt); hubBakeShadows(); };
 // ---------- entrances: hostiles march out of the bunker door, and bosses get a proper cinematic ----------
 
 // ===== out of the bunker =====
