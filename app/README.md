@@ -5,7 +5,7 @@ Ready-to-install builds are in `dist/`:
 | File | For |
 |---|---|
 | `OperationPhoenix.apk` | Android phones, tablets and Android TV / Google TV |
-| `com.operationphoenix.game_1.2.0_all.ipk` | LG TVs (webOS) |
+| `com.operationphoenix.game_1.2.1_all.ipk` | LG TVs (webOS) |
 
 Both are the full game, bundled offline. The only permission the Android app asks for is internet access, and it uses it only when you play online with a friend. The game picks its controls automatically: touch on phones, remote or controller on a TV, mouse and keyboard on a computer. The buttons for whatever you're using are shown in the corner.
 
@@ -19,7 +19,7 @@ The APK targets Android 16 (API 36) and installs on Android 7 through Android 17
 LG only allows side-loaded apps through its free **Developer Mode** app:
 1. Make a free account at webostv.developer.lge.com, install **Developer Mode** from the LG Content Store on the TV, sign in and turn Dev Mode on.
 2. On a computer: `npm install -g @webos-tools/cli`, then `ares-setup-device` to add the TV (its IP and the passphrase shown in the Developer Mode app).
-3. `ares-install --device <name> dist/com.operationphoenix.game_1.2.0_all.ipk`
+3. `ares-install --device <name> dist/com.operationphoenix.game_1.2.1_all.ipk`
 
 Developer Mode sessions expire after a few days unless you press "Extend" in the Developer Mode app.
 

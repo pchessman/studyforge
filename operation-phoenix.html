@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src data: blob:; media-src data: blob:; connect-src 'none'; worker-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Operation Phoenix</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -617,6 +617,11 @@ body.touch .keys{display:none}
 .load-tip .tip-n{display:inline-block;margin-left:6px;font-size:11px;font-weight:900;color:var(--text-soft)}
 .hot.gift .sign{background:var(--gold);animation:float 1.6s ease-in-out infinite}
 .hot.gift.opening{pointer-events:none}
+/* ---- phones and tablets: the game fills the screen exactly. No pinch zoom, no double-tap zoom, no page panning. ---- */
+html,body{overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:pan-x pan-y;-webkit-tap-highlight-color:transparent}
+#game,.hub-cv,.hub-hots,.mm-cv{touch-action:none}
+.title-screen{height:100%;min-height:0;overflow:hidden;padding:10px}
+.title-inner{max-width:min(720px,calc(100vw - 20px));box-sizing:border-box;transform-origin:50% 50%}
 </style>
 </head>
 <body>
@@ -925,6 +930,16 @@ body.touch .keys{display:none}
    Sections: data · helpers & terrain · profile · audio & music · state ·
    waves · simulation · rendering · UI (command centre + console) · input · boot
    ========================================================================= */
+// Phones and tablets: lock the page to the screen like an app, so it can't be pinched, double-tapped or zoomed out.
+(() => {
+  const want = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+  let m = document.querySelector('meta[name=viewport]');
+  if (!m) { m = document.createElement('meta'); m.name = 'viewport'; document.head.appendChild(m); }
+  if (m.content !== want) m.content = want;
+  // Safari ignores user-scalable, so its pinch gestures are stopped by hand
+  for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, e => e.preventDefault(), { passive: false });
+  document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+})();
 // older TV browsers (webOS 5, Chrome 68) are missing a couple of array helpers
 if (!Array.prototype.flatMap) Object.defineProperty(Array.prototype, 'flatMap', { configurable: true, writable: true, value(fn, t) { return [].concat(...this.map(fn, t)); } });
 if (!Array.prototype.flat) Object.defineProperty(Array.prototype, 'flat', { configurable: true, writable: true, value() { return [].concat(...this); } });
@@ -13822,6 +13837,28 @@ openSettings = function () {
   row('Controllers', `${padsNow().length || 'no'} connected · test buttons and rebind them`, btn('btn-gold btn-sm', 'Set up', () => openControllers()));
   row('Redeem a code', 'free stuff from the game\'s creator', btn('btn-gold btn-sm', 'Enter code', () => openRedeem()));
 };
+
+// ----- the title card always fits the screen: wrap first, then shrink if a short landscape phone still can't hold it -----
+function fitTitle() {
+  const t = ui.title, inner = t && t.querySelector('.title-inner'); if (!inner || t.hidden) return;
+  const hint = inner.querySelector('.title-hint'); if (hint) hint.textContent = Input.mode === 'touch' ? 'Tap Deploy to start · headphones recommended' : Input.mode === 'pad' || Input.mode === 'remote' ? 'Press A or OK to deploy · headphones recommended' : 'Click Deploy or press Enter · headphones recommended';
+  inner.style.transform = '';
+  const w = inner.offsetWidth, h = inner.offsetHeight, s = Math.min(1, (innerWidth - 20) / w, (innerHeight - 20) / h);
+  if (s < .995) inner.style.transform = `scale(${s.toFixed(3)})`;
+}
+window.addEventListener('resize', fitTitle); window.addEventListener('orientationchange', () => setTimeout(fitTitle, 120));
+if (window.visualViewport) visualViewport.addEventListener('resize', fitTitle);
+fitTitle(); setTimeout(fitTitle, 300);
+// building name signs never hang off the edge of a narrow phone screen
+function hubSignsInView() {
+  for (const s of ui.hubHots.querySelectorAll('.sign')) {
+    s.style.translate = '';
+    const r = s.getBoundingClientRect(), dx = r.left < 6 ? 6 - r.left : r.right > innerWidth - 6 ? innerWidth - 6 - r.right : 0;
+    if (dx) s.style.translate = `${Math.round(dx)}px 0`;
+  }
+}
+const hubLayoutV12 = hubLayout;
+hubLayout = function () { const r = hubLayoutV12(); requestAnimationFrame(hubSignsInView); return r; };
 // ---------- v12 base camp: chunky 3D buildings with sunlight and shadows, and springy, bouncy reactions ----------
 // Each building is still a cached sprite redrawn about ten times a second (two per frame at most). The sprite now
 // gets a sunlit gradient and a solid side, extruded down and to the right, so it reads as a little 3D model. Every

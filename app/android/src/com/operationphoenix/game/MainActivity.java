@@ -108,7 +108,7 @@ public class MainActivity extends Activity {
         s.setDisplayZoomControls(false);
         s.setSupportMultipleWindows(false);
         s.setJavaScriptCanOpenWindowsAutomatically(false);
-        s.setLoadWithOverviewMode(true);
+        s.setLoadWithOverviewMode(false);   // never zoom out to fit: the page sizes itself to the screen
         s.setUseWideViewPort(true);
         s.setTextZoom(100);                    // the game sizes its own text; system font scaling would break the layout
         if (Build.VERSION.SDK_INT >= 26) s.setSafeBrowsingEnabled(false); // no web pages are ever visited
